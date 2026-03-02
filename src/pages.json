@@ -1,0 +1,76 @@
+{
+  "pages": [
+    {
+      "path": "pages/config/DirectConfig",
+      "style": {
+        "navigationBarTitleText": "指令配置"
+      }
+    },
+    {
+      "path": "pages/device/DeviceManage",
+      "style": {
+        "navigationBarTitleText": "设备管理"
+      }
+    },
+    {
+      "path": "pages/sensor/RealtimeData",
+      "style": {
+        "navigationBarTitleText": "传感器实时数据"
+      }
+    },
+    {
+      "path": "pages/behavior/RealtimeData",
+      "style": {
+        "navigationBarTitleText": "行为实时数据"
+      }
+    },
+    {
+      "path": "pages/error/ErrorMsg",
+      "style": {
+        "navigationBarTitleText": "错误信息"
+      }
+    },
+    {
+      "path": "pages/sensor/HistoryData",
+      "style": {
+        "navigationBarTitleText": "传感器历史数据"
+      }
+    },
+    {
+      "path": "pages/behavior/HistoryData",
+      "style": {
+        "navigationBarTitleText": "行为历史数据"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "IoT设备管理",
+    "navigationBarBackgroundColor": "#2979ff",
+    "backgroundColor": "#f5f5f5"
+  },
+  "tabBar": {
+    "color": "#7A7E83",
+    "selectedColor": "#2979ff",
+    "borderStyle": "black",
+    "backgroundColor": "#ffffff",
+    "list": [
+      {
+        "pagePath": "pages/config/DirectConfig",
+        "text": "指令配置"
+      },
+      {
+        "pagePath": "pages/device/DeviceManage",
+        "text": "设备管理"
+      },
+      {
+        "pagePath": "pages/sensor/RealtimeData",
+        "text": "传感器数据"
+      },
+      {
+        "pagePath": "pages/behavior/RealtimeData",
+        "text": "行为数据"
+      }
+    ]
+  }
+}
