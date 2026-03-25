@@ -144,13 +144,14 @@
 
 <script setup>
 import { ref, onMounted, computed, onUnmounted, nextTick } from "vue"
+import * as echarts from "echarts"
 import { getFormatPaged, getFormatChart } from "@/api/get_format_limit"
 import { appStore } from "@/stores/index"
 import { formatDate } from "@/utils/index"
 import wsClient from "@/utils/websocket"
+import { navigateToPage } from "@/utils/navigation"
 
 // #ifdef H5
-let echarts = null
 let myChart = null
 let resizeObserver = null
 let resizeTimer = null
@@ -222,15 +223,6 @@ const handleWsData = (data) => {
 }
 
 onMounted(async () => {
-  // #ifdef H5
-  try {
-    const echartsModule = await import("echarts")
-    echarts = echartsModule
-  } catch (error) {
-    console.error("ECharts 加载失败:", error)
-  }
-  // #endif
-
   try {
     await fetchData()
     await fetchChartData()
@@ -476,7 +468,7 @@ function nextPage() {
 }
 
 function navigateTo(url) {
-  uni.navigateBack()
+  navigateToPage(url)
 }
 </script>
 

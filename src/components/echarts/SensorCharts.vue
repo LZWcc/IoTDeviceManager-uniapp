@@ -33,13 +33,13 @@
 
 <script setup>
 import { ref, onMounted, computed, watch, onUnmounted, nextTick } from "vue"
+import * as echarts from "echarts"
 import { getFormatMinuteAvg } from "@/api/get_format_limit"
 import { appStore } from "@/stores/index"
 import { formatDate } from "@/utils/index"
 import wsClient from "@/utils/websocket"
 
 // #ifdef H5
-let echarts = null
 let myChart = null
 let resizeObserver = null
 let resizeTimer = null
@@ -157,10 +157,7 @@ function onChartTypeChange(e) {
 
 onMounted(async () => {
   // #ifdef H5
-  // 动态导入 ECharts (仅 H5 平台)
   try {
-    const echartsModule = await import("echarts")
-    echarts = echartsModule
     await initChart()
   } catch (error) {
     console.error("ECharts 加载失败:", error)

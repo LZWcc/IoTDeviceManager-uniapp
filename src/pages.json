@@ -1,6 +1,12 @@
 {
   "pages": [
     {
+      "path": "pages/sensor/RealtimeData",
+      "style": {
+        "navigationBarTitleText": "传感器实时数据"
+      }
+    },
+    {
       "path": "pages/config/DirectConfig",
       "style": {
         "navigationBarTitleText": "指令配置"
@@ -10,12 +16,6 @@
       "path": "pages/device/DeviceManage",
       "style": {
         "navigationBarTitleText": "设备管理"
-      }
-    },
-    {
-      "path": "pages/sensor/RealtimeData",
-      "style": {
-        "navigationBarTitleText": "传感器实时数据"
       }
     },
     {
@@ -40,6 +40,12 @@
       "path": "pages/behavior/HistoryData",
       "style": {
         "navigationBarTitleText": "行为历史数据"
+      }
+    },
+    {
+      "path": "pages/expand/AiChat",
+      "style": {
+        "navigationBarTitleText": "AI智能助手"
       }
     }
   ],
