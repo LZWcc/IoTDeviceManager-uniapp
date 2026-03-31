@@ -191,6 +191,8 @@ watch(
 <style lang="scss" scoped>
 #sensor-charts {
   width: 100%;
+  max-width: 100%;
+  overflow: hidden;
 
   .charts-container {
     width: 100%;
@@ -201,6 +203,10 @@ watch(
     display: flex;
     justify-content: flex-end;
     margin-bottom: 16px;
+    width: 100%;
+    max-width: 100%;
+    padding-right: 4px;
+    box-sizing: border-box;
 
     .picker-box {
       display: flex;
@@ -210,7 +216,12 @@ watch(
       background-color: #fff;
       border: 1px solid #dcdfe6;
       border-radius: 4px;
-      min-width: 100px;
+      min-width: 96px;
+      max-width: calc(100vw - 72px);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      box-sizing: border-box;
 
       .arrow {
         color: #999;
@@ -225,8 +236,12 @@ watch(
 /* #ifdef MP-WEIXIN || MP-ALIPAY */
 #sensor-charts {
   .tool-bar {
+    margin-bottom: 20rpx;
+    padding-right: 0;
+
     .picker-box {
       padding: 16rpx 28rpx;
+      max-width: calc(100vw - 88rpx);
     }
   }
 

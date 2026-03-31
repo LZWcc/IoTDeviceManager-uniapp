@@ -22,7 +22,8 @@
         <input
           class="filter-input"
           type="text"
-          v-model="d_no"
+          :value="d_no"
+          @input="onDeviceInput"
           placeholder="请输入设备编号"
           confirm-type="done"
         />
@@ -30,20 +31,40 @@
 
       <view class="filter-item">
         <text class="filter-label">开始时间</text>
+        <!-- #ifdef H5 -->
+        <input
+          class="filter-input date-input"
+          type="date"
+          :value="startDate"
+          @change="onStartDateChange"
+        />
+        <!-- #endif -->
+        <!-- #ifndef H5 -->
         <picker mode="date" :value="startDate" @change="onStartDateChange">
           <view class="date-picker">
             <text>{{ startDate || "选择日期" }}</text>
           </view>
         </picker>
+        <!-- #endif -->
       </view>
 
       <view class="filter-item">
         <text class="filter-label">结束时间</text>
+        <!-- #ifdef H5 -->
+        <input
+          class="filter-input date-input"
+          type="date"
+          :value="endDate"
+          @change="onEndDateChange"
+        />
+        <!-- #endif -->
+        <!-- #ifndef H5 -->
         <picker mode="date" :value="endDate" @change="onEndDateChange">
           <view class="date-picker">
             <text>{{ endDate || "选择日期" }}</text>
           </view>
         </picker>
+        <!-- #endif -->
       </view>
 
       <view class="filter-actions">
@@ -384,12 +405,22 @@ function scheduleChartRefresh() {
   }, delay)
 }
 
+function readEventValue(e) {
+  if (e?.detail?.value !== undefined) return e.detail.value
+  if (e?.target?.value !== undefined) return e.target.value
+  return ""
+}
+
+function onDeviceInput(e) {
+  d_no.value = readEventValue(e)
+}
+
 function onStartDateChange(e) {
-  startDate.value = e.detail.value
+  startDate.value = readEventValue(e)
 }
 
 function onEndDateChange(e) {
-  endDate.value = e.detail.value
+  endDate.value = readEventValue(e)
 }
 
 async function onFilter() {
@@ -502,15 +533,10 @@ function navigateTo(url) {
   background-color: #fff;
   border-radius: 20rpx;
   box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
-  position: relative;
-  z-index: 20;
-  isolation: isolate;
 }
 
 .filter-item {
   margin-bottom: 24rpx;
-  position: relative;
-  z-index: 21;
 }
 
 .filter-label {
@@ -532,11 +558,9 @@ function navigateTo(url) {
   box-sizing: border-box;
 }
 
-.filter-input,
-.date-picker {
-  position: relative;
-  z-index: 22;
-  pointer-events: auto;
+.date-input {
+  min-height: 80rpx;
+  line-height: 40rpx;
 }
 
 .filter-actions {

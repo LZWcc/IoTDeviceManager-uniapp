@@ -3,7 +3,12 @@
     <view v-if="title" class="chart-title">
       <text>{{ title }}</text>
     </view>
-    <view v-if="hasData" :id="viewportId" class="canvas-viewport">
+    <view
+      v-if="hasData"
+      :id="viewportId"
+      class="canvas-viewport"
+      :style="{ minHeight: height }"
+    >
       <!-- #ifdef H5 -->
       <view class="canvas-scroll canvas-scroll-native">
         <view class="canvas-box" :style="{ height, width: `${canvasWidth}px` }">
@@ -12,8 +17,12 @@
             :canvas-id="canvasId"
             class="uchart-canvas"
             :style="{ width: `${canvasWidth}px`, height }"
+            @click="handleTap"
             @tap="handleTap"
-            @touchend="handleTouchEnd"
+            @touchstart="handleTap"
+            @mousemove="handleMove"
+            @touchmove="handleMove"
+            @mouseleave="handleLeave"
           />
         </view>
       </view>
@@ -32,7 +41,8 @@
             class="uchart-canvas"
             :style="{ width: `${canvasWidth}px`, height }"
             @tap="handleTap"
-            @touchend="handleTouchEnd"
+            @touchstart="handleTap"
+            @touchmove="handleMove"
           />
         </view>
       </scroll-view>
@@ -106,6 +116,9 @@ let lastChartWidth = 0
 let lastChartHeight = 0
 let lastDataSignature = ""
 let renderSeq = 0
+let tooltipHideTimer = null
+let zeroRectRetryCount = 0
+let lastChartOptions = null
 
 const hasData = computed(() => {
   return props.categories.length > 0 && props.series.length > 0
@@ -135,17 +148,22 @@ onUnmounted(() => {
     clearTimeout(resizeTimer)
     resizeTimer = null
   }
+  if (tooltipHideTimer) {
+    clearTimeout(tooltipHideTimer)
+    tooltipHideTimer = null
+  }
   chart = null
+  lastChartOptions = null
 })
 
-function scheduleRender() {
+function scheduleRender(delay = 80) {
   if (resizeTimer) {
     clearTimeout(resizeTimer)
   }
 
   resizeTimer = setTimeout(() => {
     renderChart()
-  }, 80)
+  }, delay)
 }
 
 function buildDataSignature(type, categories, series) {
@@ -197,14 +215,25 @@ async function renderChart() {
     lastChartWidth = 0
     lastChartHeight = 0
     lastDataSignature = ""
+    lastChartOptions = null
+    zeroRectRetryCount = 0
+    if (tooltipHideTimer) {
+      clearTimeout(tooltipHideTimer)
+      tooltipHideTimer = null
+    }
     return
   }
 
   const rect = await getCanvasRect()
   if (currentSeq !== renderSeq) return
   if (!rect?.width || !rect?.height) {
+    if (zeroRectRetryCount < 8) {
+      zeroRectRetryCount += 1
+      scheduleRender(120)
+    }
     return
   }
+  zeroRectRetryCount = 0
 
   const isCompact = rect.width <= 420
   const minPointWidth = isCompact ? 96 : 88
@@ -295,19 +324,39 @@ async function renderChart() {
     chart.updateData(chartOptions)
   }
 
+  lastChartOptions = chartOptions
   lastDataSignature = dataSignature
 }
 
-function handleTouchEnd(event) {
-  showToolTip(event)
+function scheduleHideTooltip(delay = 900) {
+  if (tooltipHideTimer) {
+    clearTimeout(tooltipHideTimer)
+  }
+
+  tooltipHideTimer = setTimeout(() => {
+    hideTooltip()
+  }, delay)
+}
+
+function hideTooltip() {
+  if (!chart || !lastChartOptions) return
+  chart.updateData(lastChartOptions)
 }
 
 function handleTap(event) {
-  showToolTip(event)
+  showToolTip(normalizeTooltipEvent(event))
+}
+
+function handleMove(event) {
+  showToolTip(normalizeTooltipEvent(event))
+}
+
+function handleLeave() {
+  scheduleHideTooltip(120)
 }
 
 function showToolTip(event) {
-  if (!chart) return
+  if (!chart || !event) return
 
   chart.showToolTip(event, {
     formatter: (item) => {
@@ -315,6 +364,134 @@ function showToolTip(event) {
       return `${item.name}: ${item.data ?? "-"}${unit}`
     },
   })
+  scheduleHideTooltip()
+}
+
+function isFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value)
+}
+
+function getCanvasBoundingRect() {
+  // #ifdef H5
+  if (typeof document !== "undefined") {
+    const canvasEl = document.getElementById(canvasId)
+    if (canvasEl && typeof canvasEl.getBoundingClientRect === "function") {
+      return canvasEl.getBoundingClientRect()
+    }
+  }
+  // #endif
+  return null
+}
+
+function convertClientPointToCanvas(clientX, clientY) {
+  const rect = getCanvasBoundingRect()
+  if (!rect) return null
+
+  const x = clientX - rect.left
+  const y = clientY - rect.top
+
+  if (!isFiniteNumber(x) || !isFiniteNumber(y)) return null
+  return { x, y }
+}
+
+function convertPagePointToCanvas(pageX, pageY) {
+  // #ifdef H5
+  const win = typeof window !== "undefined" ? window : null
+  const scrollX = win ? win.pageXOffset || 0 : 0
+  const scrollY = win ? win.pageYOffset || 0 : 0
+  return convertClientPointToCanvas(pageX - scrollX, pageY - scrollY)
+  // #endif
+  // #ifndef H5
+  return null
+  // #endif
+}
+
+function resolveTouchPoint(touchPoint) {
+  if (!touchPoint) return null
+
+  if (isFiniteNumber(touchPoint.x) && isFiniteNumber(touchPoint.y)) {
+    return { x: touchPoint.x, y: touchPoint.y }
+  }
+
+  if (isFiniteNumber(touchPoint.clientX) && isFiniteNumber(touchPoint.clientY)) {
+    return convertClientPointToCanvas(touchPoint.clientX, touchPoint.clientY)
+  }
+
+  if (isFiniteNumber(touchPoint.pageX) && isFiniteNumber(touchPoint.pageY)) {
+    return convertPagePointToCanvas(touchPoint.pageX, touchPoint.pageY)
+  }
+
+  return null
+}
+
+function extractTooltipPoint(event) {
+  if (!event) return null
+
+  if (isFiniteNumber(event?.detail?.x) && isFiniteNumber(event?.detail?.y)) {
+    return { x: event.detail.x, y: event.detail.y }
+  }
+
+  if (isFiniteNumber(event?.x) && isFiniteNumber(event?.y)) {
+    return { x: event.x, y: event.y }
+  }
+
+  const touchPoint =
+    event?.changedTouches?.[0] ||
+    event?.touches?.[0] ||
+    event?.mp?.changedTouches?.[0] ||
+    event?.mp?.touches?.[0]
+  const resolvedTouch = resolveTouchPoint(touchPoint)
+  if (resolvedTouch) return resolvedTouch
+
+  if (isFiniteNumber(event?.offsetX) && isFiniteNumber(event?.offsetY)) {
+    return { x: event.offsetX, y: event.offsetY }
+  }
+
+  if (isFiniteNumber(event?.clientX) && isFiniteNumber(event?.clientY)) {
+    return convertClientPointToCanvas(event.clientX, event.clientY)
+  }
+
+  if (isFiniteNumber(event?.pageX) && isFiniteNumber(event?.pageY)) {
+    return convertPagePointToCanvas(event.pageX, event.pageY)
+  }
+
+  return null
+}
+
+function normalizeTooltipEvent(event) {
+  if (!event) return event
+
+  const point = extractTooltipPoint(event)
+  if (!point) return event
+
+  const touchPoint = { x: point.x, y: point.y }
+  const detail = {
+    ...(event.detail || {}),
+    x: point.x,
+    y: point.y,
+  }
+  const mp = {
+    ...(event.mp || {}),
+    detail: {
+      ...(event?.mp?.detail || {}),
+      x: point.x,
+      y: point.y,
+    },
+    changedTouches: event?.mp?.changedTouches?.length
+      ? event.mp.changedTouches
+      : [touchPoint],
+    touches: event?.mp?.touches?.length ? event.mp.touches : [touchPoint],
+  }
+
+  return {
+    ...event,
+    detail,
+    x: point.x,
+    y: point.y,
+    changedTouches: event?.changedTouches?.length ? event.changedTouches : [touchPoint],
+    touches: event?.touches?.length ? event.touches : [touchPoint],
+    mp,
+  }
 }
 </script>
 
