@@ -1,6 +1,5 @@
 <template>
   <view class="page">
-    <!-- 导航菜单 -->
     <view class="menu-list">
       <view class="menu-item" @click="navigateTo('/pages/sensor/RealtimeData')">
         <text class="menu-icon">📊</text>
@@ -14,7 +13,6 @@
       </view>
     </view>
 
-    <!-- 筛选条件 -->
     <view class="filter-wrapper">
       <view class="filter-item" v-if="appStore.settings.showDeviceFeatures">
         <text class="filter-label">设备编号</text>
@@ -51,49 +49,81 @@
       </view>
     </view>
 
-    <!-- 数据表格 -->
     <view class="table-wrapper">
       <view class="table-container">
-        <scroll-view scroll-x="true" class="table-scroll">
-          <view class="table">
-            <!-- 表头 -->
-            <view class="table-header">
-              <view
-                class="table-cell header-cell"
-                v-for="(header, index) in filteredTableHeader"
-                :key="index"
-              >
-                <text>{{ header.label }}</text>
+        <!-- #ifdef H5 -->
+        <view class="table-scroll table-scroll-native">
+          <view class="table-scroll-content">
+            <view class="table">
+              <view class="table-header">
+                <view
+                  class="table-cell header-cell"
+                  v-for="(header, index) in filteredTableHeader"
+                  :key="index"
+                >
+                  <text>{{ header.label }}</text>
+                </view>
+              </view>
+
+              <view class="table-body">
+                <view
+                  class="table-row"
+                  v-for="(row, rowIndex) in formattedTableData"
+                  :key="rowIndex"
+                >
+                  <view
+                    class="table-cell"
+                    v-for="(header, colIndex) in filteredTableHeader"
+                    :key="colIndex"
+                  >
+                    <text>{{ row[header.prop] || "-" }}</text>
+                  </view>
+                </view>
               </view>
             </view>
-
-            <!-- 表体 -->
-            <view class="table-body">
-              <view
-                class="table-row"
-                v-for="(row, rowIndex) in formattedTableData"
-                :key="rowIndex"
-              >
+          </view>
+        </view>
+        <!-- #endif -->
+        <!-- #ifndef H5 -->
+        <scroll-view scroll-x="true" class="table-scroll">
+          <view class="table-scroll-content">
+            <view class="table">
+              <view class="table-header">
                 <view
-                  class="table-cell"
-                  v-for="(header, colIndex) in filteredTableHeader"
-                  :key="colIndex"
+                  class="table-cell header-cell"
+                  v-for="(header, index) in filteredTableHeader"
+                  :key="index"
                 >
-                  <text>{{ row[header.prop] || "-" }}</text>
+                  <text>{{ header.label }}</text>
+                </view>
+              </view>
+
+              <view class="table-body">
+                <view
+                  class="table-row"
+                  v-for="(row, rowIndex) in formattedTableData"
+                  :key="rowIndex"
+                >
+                  <view
+                    class="table-cell"
+                    v-for="(header, colIndex) in filteredTableHeader"
+                    :key="colIndex"
+                  >
+                    <text>{{ row[header.prop] || "-" }}</text>
+                  </view>
                 </view>
               </view>
             </view>
           </view>
         </scroll-view>
+        <!-- #endif -->
 
-        <!-- 空数据提示 -->
         <view class="empty-data" v-if="formattedTableData.length === 0">
           <text>暂无数据</text>
         </view>
       </view>
     </view>
 
-    <!-- 分页 -->
     <view class="pagination-wrapper">
       <view class="pagination-controls">
         <text class="total-text">共 {{ total }} 条</text>
@@ -127,56 +157,54 @@
       </view>
     </view>
 
-    <!-- 图表区域 -->
     <view class="chart-wrapper">
-      <!-- #ifdef H5 -->
-      <view class="chart-container" id="historyChartRef"></view>
-      <!-- #endif -->
-
-      <!-- #ifndef H5 -->
-      <view class="chart-placeholder">
-        <text>图表功能仅在 H5 平台支持</text>
-      </view>
-      <!-- #endif -->
+      <UChartCanvas
+        :categories="chartCategories"
+        :series="chartSeries"
+        :yAxis="chartYAxis"
+        height="640rpx"
+      />
     </view>
   </view>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, onUnmounted, nextTick } from "vue"
-import * as echarts from "echarts"
-import { getFormatPaged, getFormatChart } from "@/api/get_format_limit"
+import { computed, onMounted, onUnmounted, ref, shallowRef } from "vue"
+import UChartCanvas from "@/components/charts/UChartCanvas.vue"
+import { getFormatChart, getFormatPaged } from "@/api/get_format_limit"
 import { appStore } from "@/stores/index"
-import { formatDate } from "@/utils/index"
+import {
+  createValueAxisConfig,
+  downsampleChartData,
+  normalizeChartSeries,
+} from "@/utils/ucharts"
 import wsClient from "@/utils/websocket"
 import { navigateToPage } from "@/utils/navigation"
 
-// #ifdef H5
-let myChart = null
-let resizeObserver = null
-let resizeTimer = null
-// #endif
-
 const type = ref("sensor")
-
-// 筛选条件
 const d_no = ref("")
 const startDate = ref("")
 const endDate = ref("")
-
-// 表格数据
 const tableData = ref([])
 const tableHeader = ref([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const pageSizes = [5, 10, 20, 50, 100]
-const pageSizeIndex = ref(1) // 默认 10
+const pageSizeIndex = ref(1)
+const chartCategories = shallowRef([])
+const chartSeries = shallowRef([])
+const chartYAxis = shallowRef({ disabled: false, splitNumber: 5 })
+let wsRefreshTimer = null
+let chartRequestId = 0
+let lastChartFetchAt = 0
+let isChartFetching = false
+let hasPendingChartRefresh = false
+const CHART_REFRESH_INTERVAL = 10000
+const MAX_CHART_POINTS_MOBILE = 120
+const MAX_CHART_POINTS_DESKTOP = 200
 
-// 计算属性
-const totalPages = computed(() => {
-  return Math.ceil(total.value / pageSize.value) || 1
-})
+const totalPages = computed(() => Math.ceil(total.value / pageSize.value) || 1)
 
 const formattedTableData = computed(() => {
   return tableData.value.map((row) => {
@@ -196,9 +224,7 @@ const filteredTableHeader = computed(() => {
   return tableHeader.value.filter((col) => col.prop !== "设备编号")
 })
 
-// WebSocket 实时数据更新处理
 const handleWsData = (data) => {
-  // 如果设备编号不匹配，忽略
   if (
     appStore.value.settings.showDeviceFeatures &&
     data.d_no &&
@@ -207,18 +233,14 @@ const handleWsData = (data) => {
     return
   }
 
-  console.log("HistoryData received WS data:", data)
+  if (!data.timestamp) return
 
-  // 更新图表数据（如果在当前日期范围内）
-  if (myChart && data.timestamp) {
-    const dataTime = new Date(data.timestamp)
-    const start = startDate.value ? new Date(startDate.value) : null
-    const end = endDate.value ? new Date(endDate.value) : null
+  const dataTime = new Date(data.timestamp)
+  const start = startDate.value ? new Date(startDate.value) : null
+  const end = endDate.value ? new Date(endDate.value) : null
 
-    if ((!start || dataTime >= start) && (!end || dataTime <= end)) {
-      // 重新获取图表数据
-      fetchChartData()
-    }
+  if ((!start || dataTime >= start) && (!end || dataTime <= end)) {
+    scheduleChartRefresh()
   }
 }
 
@@ -234,59 +256,20 @@ onMounted(async () => {
     })
   }
 
-  // WebSocket 监听
-  const topic = "sensor_update"
-  wsClient.on(topic, handleWsData)
+  wsClient.on("sensor_update", handleWsData)
   wsClient.send({
     type: "subscribe",
-    topics: [topic],
+    topics: ["sensor_update"],
   })
-
-  // #ifdef H5
-  window.addEventListener("resize", handleResize)
-  // #endif
 })
 
 onUnmounted(() => {
-  // 清理 WebSocket 监听
-  const topic = "sensor_update"
-  wsClient.off(topic, handleWsData)
-
-  // #ifdef H5
-  window.removeEventListener("resize", handleResize)
-  if (resizeObserver) {
-    resizeObserver.disconnect()
-    resizeObserver = null
+  wsClient.off("sensor_update", handleWsData)
+  if (wsRefreshTimer) {
+    clearTimeout(wsRefreshTimer)
+    wsRefreshTimer = null
   }
-  if (resizeTimer) {
-    clearTimeout(resizeTimer)
-    resizeTimer = null
-  }
-  if (myChart) {
-    myChart.dispose()
-    myChart = null
-  }
-  // #endif
 })
-
-function handleResize() {
-  // #ifdef H5
-  if (resizeTimer) {
-    clearTimeout(resizeTimer)
-  }
-  resizeTimer = setTimeout(() => {
-    if (myChart) {
-      const chartDom = document.getElementById("historyChartRef")
-      if (chartDom) {
-        myChart.resize({
-          width: chartDom.offsetWidth || window.innerWidth,
-          height: chartDom.offsetHeight || 400,
-        })
-      }
-    }
-  }, 100)
-  // #endif
-}
 
 async function fetchData() {
   try {
@@ -302,13 +285,14 @@ async function fetchData() {
     total.value = res.data.total
 
     if (response.length > 0) {
-      tableHeader.value = response[0].map((field) => {
-        return {
-          prop: field.f_name,
-          label: field.unit ? `${field.f_name}(${field.unit})` : field.f_name,
-        }
-      })
+      tableHeader.value = response[0].map((field) => ({
+        prop: field.f_name,
+        label: field.unit ? `${field.f_name}(${field.unit})` : field.f_name,
+      }))
+    } else {
+      tableHeader.value = []
     }
+
     tableData.value = response
   } catch (error) {
     console.error("获取数据失败:", error)
@@ -320,7 +304,14 @@ async function fetchData() {
 }
 
 async function fetchChartData() {
-  // #ifdef H5
+  if (isChartFetching) {
+    hasPendingChartRefresh = true
+    return
+  }
+
+  isChartFetching = true
+  const requestId = ++chartRequestId
+  lastChartFetchAt = Date.now()
   try {
     const res = await getFormatChart(
       d_no.value,
@@ -330,93 +321,64 @@ async function fetchChartData() {
     )
     const { times, series } = res.data.data
 
-    if (!times || times.length === 0) {
-      uni.showToast({
-        title: "没有可用的图表数据",
-        icon: "none",
-      })
-      if (myChart) myChart.clear()
+    if (requestId !== chartRequestId) {
       return
     }
 
-    console.log("chart data:", times, series)
-    await nextTick()
-    renderChart(times, series)
+    if (!times?.length) {
+      chartCategories.value = []
+      chartSeries.value = []
+      chartYAxis.value = { disabled: false, splitNumber: 5 }
+      return
+    }
+
+    const screenWidth = uni.getSystemInfoSync().windowWidth || 375
+    const maxPoints =
+      screenWidth >= 1024 ? MAX_CHART_POINTS_DESKTOP : MAX_CHART_POINTS_MOBILE
+    const sampled = downsampleChartData(times, series, maxPoints)
+    const normalizedSeries = normalizeChartSeries(
+      sampled.series.map((item) => ({
+        ...item,
+        unit: item.unit || "",
+      })),
+      "line",
+    )
+
+    chartCategories.value = sampled.times
+    chartSeries.value = normalizedSeries
+    chartYAxis.value = createValueAxisConfig(normalizedSeries, {
+      forceZeroMin: true,
+    })
   } catch (error) {
     console.error("获取图表数据失败:", error)
     uni.showToast({
       title: "获取图表数据失败",
       icon: "none",
     })
-  }
-  // #endif
-}
-
-function renderChart(times, series) {
-  // #ifdef H5
-  if (!echarts) return
-
-  const chartDom = document.getElementById("historyChartRef")
-  if (!chartDom) return
-
-  if (!myChart) {
-    myChart = echarts.init(chartDom)
-
-    // 使用 ResizeObserver 监听容器尺寸变化
-    if (typeof ResizeObserver !== "undefined" && !resizeObserver) {
-      resizeObserver = new ResizeObserver(() => {
-        handleResize()
-      })
-      resizeObserver.observe(chartDom)
+  } finally {
+    isChartFetching = false
+    if (hasPendingChartRefresh) {
+      hasPendingChartRefresh = false
+      scheduleChartRefresh()
     }
   }
+}
 
-  const option = {
-    tooltip: {
-      trigger: "axis",
-      formatter: (params) => {
-        let tooltipText = params[0].axisValue + "<br/>"
-        params.forEach((item) => {
-          const unit = series[item.seriesIndex].unit || ""
-          tooltipText += `${item.marker} ${item.seriesName}: ${item.data} ${unit}<br/>`
-        })
-        return tooltipText
-      },
-    },
-    legend: {
-      data: series.map((s) => s.name),
-      top: "5%",
-    },
-    grid: {
-      left: "10%",
-      right: "10%",
-      bottom: "10%",
-      top: "15%",
-      containLabel: true,
-    },
-    xAxis: {
-      type: "category",
-      data: times,
-      axisLabel: {
-        rotate: 30,
-      },
-    },
-    yAxis: {
-      type: "value",
-      min: 0,
-      max: 100,
-      interval: 10,
-    },
-    series: series.map((s) => ({
-      name: s.name,
-      type: "line",
-      data: s.data,
-      smooth: true,
-    })),
+function scheduleChartRefresh() {
+  const elapsed = Date.now() - lastChartFetchAt
+  const delay = Math.max(500, CHART_REFRESH_INTERVAL - elapsed)
+
+  if (wsRefreshTimer) {
+    clearTimeout(wsRefreshTimer)
   }
 
-  myChart.setOption(option)
-  // #endif
+  wsRefreshTimer = setTimeout(() => {
+    if (isChartFetching) {
+      hasPendingChartRefresh = true
+      return
+    }
+    fetchChartData()
+  }, delay)
 }
 
 function onStartDateChange(e) {
@@ -477,6 +439,7 @@ function navigateTo(url) {
   min-height: 100vh;
   background-color: #f5f5f5;
   padding-bottom: 40rpx;
+  position: relative;
 }
 
 .menu-list {
@@ -530,17 +493,21 @@ function navigateTo(url) {
   border-radius: 20rpx;
 }
 
-/* 筛选条件 */
 .filter-wrapper {
   margin: 20rpx;
   padding: 30rpx;
   background-color: #fff;
   border-radius: 20rpx;
   box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
+  position: relative;
+  z-index: 20;
+  isolation: isolate;
 }
 
 .filter-item {
   margin-bottom: 24rpx;
+  position: relative;
+  z-index: 21;
 }
 
 .filter-label {
@@ -550,26 +517,23 @@ function navigateTo(url) {
   margin-bottom: 12rpx;
 }
 
-.filter-input {
+.filter-input,
+.date-picker {
   width: 100%;
-  height: 80rpx;
-  line-height: 80rpx;
-  padding: 0 20rpx;
-  background-color: #f9f9f9;
+  padding: 20rpx;
   border: 2rpx solid #e0e0e0;
   border-radius: 12rpx;
-  font-size: 28rpx;
+  font-size: 30rpx;
   color: #333;
+  background-color: #f9f9f9;
   box-sizing: border-box;
 }
 
+.filter-input,
 .date-picker {
-  padding: 20rpx;
-  background-color: #f9f9f9;
-  border: 2rpx solid #e0e0e0;
-  border-radius: 12rpx;
-  font-size: 28rpx;
-  color: #333;
+  position: relative;
+  z-index: 22;
+  pointer-events: auto;
 }
 
 .filter-actions {
@@ -581,9 +545,10 @@ function navigateTo(url) {
 .query-btn,
 .reset-btn {
   flex: 1;
-  padding: 24rpx;
+  height: 80rpx;
+  line-height: 80rpx;
   border-radius: 12rpx;
-  font-size: 28rpx;
+  font-size: 30rpx;
   border: none;
 }
 
@@ -597,18 +562,17 @@ function navigateTo(url) {
   color: #666;
 }
 
-/* 表格样式 */
 .table-wrapper {
   margin: 20rpx;
-  background-color: #fff;
-  border-radius: 12rpx;
-  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.08);
-  overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .table-container {
-  width: 100%;
-  position: relative;
+  background-color: #fff;
+  border-radius: 20rpx;
+  overflow: hidden;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
 }
 
 .table-scroll {
@@ -616,48 +580,60 @@ function navigateTo(url) {
   white-space: nowrap;
 }
 
+.table-scroll-native {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-scroll-content {
+  min-width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
 .table {
   width: 100%;
-  display: table;
-  border-collapse: collapse;
+  min-width: max-content;
 }
 
 .table-header {
   display: flex;
-  background-color: #f5f7fa;
-  border-bottom: 2rpx solid #e0e0e0;
-}
-
-.header-cell {
-  font-weight: 600;
-  color: #333;
-  background: transparent;
+  background-color: #f7f9fc;
+  border-bottom: 2rpx solid #ebeef5;
+  width: 100%;
+  min-width: max-content;
 }
 
 .table-body {
-  width: 100%;
+  max-height: 800rpx;
 }
 
 .table-row {
   display: flex;
   border-bottom: 1rpx solid #f0f0f0;
-}
-
-.table-row:last-child {
-  border-bottom: none;
+  width: 100%;
+  min-width: max-content;
 }
 
 .table-cell {
-  flex: 1;
-  min-width: 120rpx;
+  flex: 1 0 180rpx;
+  min-width: 180rpx;
   padding: 24rpx 16rpx;
-  font-size: 26rpx;
+  box-sizing: border-box;
+  font-size: 24rpx;
   color: #666;
   text-align: center;
   display: flex;
   align-items: center;
   justify-content: center;
   word-break: break-all;
+}
+
+.header-cell {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #333;
 }
 
 .empty-data {
@@ -667,13 +643,14 @@ function navigateTo(url) {
   font-size: 28rpx;
 }
 
-/* 分页 */
 .pagination-wrapper {
   margin: 20rpx;
   padding: 24rpx 30rpx;
   background-color: #fff;
   border-radius: 12rpx;
   box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.08);
+  position: relative;
+  z-index: 1;
 }
 
 .pagination-controls {
@@ -739,36 +716,13 @@ function navigateTo(url) {
   flex-shrink: 0;
 }
 
-/* 图表区域 */
 .chart-wrapper {
   margin: 20rpx;
   padding: 30rpx;
   background-color: #fff;
   border-radius: 20rpx;
   box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.chart-container {
-  width: 100%;
-  max-width: 1200px;
-  height: 400px;
-  margin: 0 auto;
-}
-
-.chart-placeholder {
-  width: 100%;
-  max-width: 1200px;
-  height: 400px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: #f5f5f5;
-  border-radius: 12rpx;
-  color: #999;
-  font-size: 28rpx;
-  margin: 0 auto;
+  position: relative;
+  z-index: 1;
 }
 </style>

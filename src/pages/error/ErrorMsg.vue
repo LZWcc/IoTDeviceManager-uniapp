@@ -14,20 +14,40 @@
 
       <view class="filter-item">
         <text class="filter-label">开始日期</text>
+        <!-- #ifdef H5 -->
+        <input
+          class="picker-value date-input"
+          type="date"
+          :value="startDate"
+          @change="onStartDateNativeChange"
+        />
+        <!-- #endif -->
+        <!-- #ifndef H5 -->
         <picker mode="date" :value="startDate" @change="onStartDateChange">
           <view class="picker-value">
             <text>{{ startDate || "请选择开始日期" }}</text>
           </view>
         </picker>
+        <!-- #endif -->
       </view>
 
       <view class="filter-item">
         <text class="filter-label">结束日期</text>
+        <!-- #ifdef H5 -->
+        <input
+          class="picker-value date-input"
+          type="date"
+          :value="endDate"
+          @change="onEndDateNativeChange"
+        />
+        <!-- #endif -->
+        <!-- #ifndef H5 -->
         <picker mode="date" :value="endDate" @change="onEndDateChange">
           <view class="picker-value">
             <text>{{ endDate || "请选择结束日期" }}</text>
           </view>
         </picker>
+        <!-- #endif -->
       </view>
 
       <view class="filter-actions">
@@ -202,6 +222,14 @@ function onEndDateChange(e) {
   endDate.value = e.detail.value
 }
 
+function onStartDateNativeChange(e) {
+  startDate.value = e.target?.value || e.detail?.value || ""
+}
+
+function onEndDateNativeChange(e) {
+  endDate.value = e.target?.value || e.detail?.value || ""
+}
+
 async function handlePrevPage() {
   if (currentPage.value <= 1) return
   currentPage.value -= 1
@@ -266,6 +294,13 @@ function tagClass(type) {
   align-items: center;
   font-size: 28rpx;
   color: #0f172a;
+}
+
+.date-input {
+  width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .filter-actions,

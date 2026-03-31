@@ -52,12 +52,11 @@
     "@dcloudio/uni-mp-weixin": "3.0.0-4080720251210001",
     "@dcloudio/uni-mp-xhs": "3.0.0-4080720251210001",
     "@dcloudio/uni-quickapp-webview": "3.0.0-4080720251210001",
-    "echarts": "^6.0.0",
+    "@qiun/ucharts": "2.5.0-20230101",
     "sass": "^1.97.3",
     "tslib": "^2.8.1",
     "vue": "^3.4.21",
-    "vue-i18n": "^9.1.9",
-    "zrender": "^6.0.0"
+    "vue-i18n": "^9.1.9"
   },
   "devDependencies": {
     "@dcloudio/types": "^3.4.8",

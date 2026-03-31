@@ -11,11 +11,11 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ["echarts", "zrender"],
+    include: ["@qiun/ucharts"],
   },
   build: {
     commonjsOptions: {
-      include: [/echarts/, /zrender/, /node_modules/],
+      include: [/node_modules/],
     },
   },
 })
