@@ -246,19 +246,76 @@ async function getCanvasRect() {
   })
 }
 
-function formatCompactXAxis(value) {
-  if (!value) return ""
+// uCharts' tooltip drawing path calls `context.setTextBaseline('normal')`
+// (see node_modules/@qiun/ucharts/u-charts.js around the tooltip text loop).
+// On H5 the context returned by `uni.createCanvasContext` already has
+// `setTextAlign`, so uCharts skips its internal polyfill and forwards the
+// call to a wrapper backed by the real CanvasRenderingContext2D — and modern
+// browsers reject `'normal'` as an invalid CanvasTextBaseline enum, throwing
+// every time the tooltip repaints during touchmove / mousemove. We patch the
+// context once per creation and remap the illegal value to `'alphabetic'`,
+// which matches uCharts' intent (text drawn from a baseline anchor) without
+// touching node_modules. Idempotent via a marker flag.
+function patchTextBaseline(context) {
+  if (!context || context.__baselinePatched) return
+  const original = context.setTextBaseline
+  if (typeof original !== "function") return
+  context.setTextBaseline = function patchedSetTextBaseline(value) {
+    const safe = value === "normal" ? "alphabetic" : value
+    return original.call(this, safe)
+  }
+  context.__baselinePatched = true
+}
 
-  const normalized = String(value).replace("T", " ")
-  const match = normalized.match(
-    /(\d{4})[-/](\d{2})[-/](\d{2})\s+(\d{2}:\d{2})/,
-  )
+// Smart x-axis formatter for timestamps.
+//
+// Two important facts about uCharts' x-axis pipeline drive this:
+// 1. It thins labels itself via `xAxis.labelCount` (see
+//    drawXAxis in node_modules/@qiun/ucharts/u-charts.js). For every index
+//    that should be hidden, it passes an empty string to the formatter.
+// 2. It renders the formatted string with a single `context.fillText` call,
+//    which does NOT honor `\n`. So any multi-line trick we attempted before
+//    was visually a lie — all the text collided on one line. Labels MUST be
+//    single-line.
+//
+// Strategy: we rely on labelCount to decide WHICH ticks get a label; this
+// formatter only decides HOW each surviving tick is written:
+//   - first / last tick         → `MM-DD HH:MM` (date anchor)
+//   - day transition vs prev    → `MM-DD HH:MM` (calendar marker)
+//   - everything else           → `HH:MM`       (most labels, very short)
+//
+// `opts.categories` is the untouched original array, even for indices that
+// uCharts has blanked out, so we can inspect neighbours when making the
+// day-transition decision.
+function formatCompactXAxis(value, index, opts) {
+  if (value === "" || value === undefined || value === null) return ""
 
-  if (match) {
-    return `${match[2]}-${match[3]}\n${match[4]}`
+  const raw = String(value).replace("T", " ")
+  const match = raw.match(/(\d{4})[-/](\d{2})[-/](\d{2})\s+(\d{2}):(\d{2})/)
+  if (!match) {
+    const timeOnly = raw.match(/(\d{2}):(\d{2})/)
+    return timeOnly ? `${timeOnly[1]}:${timeOnly[2]}` : raw
   }
 
-  return normalized
+  const mm = match[2]
+  const dd = match[3]
+  const hh = match[4]
+  const mi = match[5]
+  const short = `${hh}:${mi}`
+  const full = `${mm}-${dd} ${hh}:${mi}`
+
+  const categories = opts && Array.isArray(opts.categories) ? opts.categories : []
+  if (!categories.length) return short
+
+  const lastIdx = categories.length - 1
+  if (index === 0 || index === lastIdx) return full
+
+  const prev = String(categories[index - 1] ?? "").replace("T", " ")
+  const prevMatch = prev.match(/(\d{4})[-/](\d{2})[-/](\d{2})/)
+  if (prevMatch && `${prevMatch[2]}-${prevMatch[3]}` !== `${mm}-${dd}`) {
+    return full
+  }
+  return short
 }
 
 async function renderChart() {
@@ -288,11 +345,36 @@ async function renderChart() {
   zeroRectRetryCount = 0
 
   const isCompact = rect.width <= 420
-  const minPointWidth = isCompact ? 96 : 88
+  // Data-point density vs label density are treated as SEPARATE problems:
+  //   - data points: every sample is still drawn (high density, smooth lines)
+  //   - labels: explicitly thinned below by xAxis.labelCount / formatter
+  // The width math keeps the tight packing from the previous iteration; only
+  // the label layer has changed.
+  const pointCount = props.categories.length
+  const minPointWidth = isCompact ? 22 : 36
   const horizontalPadding = isCompact ? 24 : 20
-  const estimatedWidth = props.categories.length * minPointWidth + horizontalPadding
-  const maxCanvasWidth = rect.width * (isCompact ? 3 : 4)
+  const estimatedWidth = pointCount * minPointWidth + horizontalPadding
+  const maxCanvasWidth = rect.width * (isCompact ? 2 : 3)
   const resolvedWidth = Math.max(rect.width, Math.min(estimatedWidth, maxCanvasWidth))
+
+  // Label-density control: we want roughly one label per `labelPitch` px of
+  // canvas. `labelCount` then feeds uCharts' built-in tick thinning:
+  //   ratio = ceil(pointCount / (labelCount - 1))
+  // Every ratio-th category keeps its text, the rest get an empty string
+  // passed to our formatter. We also align `gridEval` to the same ratio so
+  // grid lines sit under labelled ticks instead of between them.
+  const labelPitch = isCompact ? 96 : 120
+  const minLabels = 3
+  const maxLabels = isCompact ? 6 : 10
+  const targetLabels = Math.max(
+    minLabels,
+    Math.min(pointCount, Math.round(resolvedWidth / labelPitch), maxLabels),
+  )
+  const xLabelCount = Math.max(minLabels, Math.min(pointCount, targetLabels))
+  const xLabelRatio = Math.max(
+    1,
+    Math.ceil(pointCount / Math.max(1, xLabelCount - 1)),
+  )
   canvasWidth.value = resolvedWidth
   const chartType = props.type === "bar" ? "column" : props.type
   const chartHeight = rect.height
@@ -330,7 +412,11 @@ async function renderChart() {
       fontSize: isCompact ? 8 : 10,
       lineHeight: isCompact ? 18 : 16,
       marginTop: isCompact ? 8 : 4,
-      formatter: props.xAxis.formatter || (isCompact ? formatCompactXAxis : undefined),
+      // Explicit label-density control: thin to `xLabelCount` ticks and align
+      // grid lines with them. Data points themselves are NOT reduced.
+      labelCount: xLabelCount,
+      gridEval: xLabelRatio,
+      formatter: props.xAxis.formatter || formatCompactXAxis,
       scrollShow: false,
       ...props.xAxis,
     },
@@ -344,6 +430,11 @@ async function renderChart() {
     extra: {
       tooltip: {
         legendShape: "auto",
+        // Prepend the current sample's full timestamp as a header row in the
+        // tooltip. uCharts reads `opts.categories[index]` directly (see
+        // drawToolTipText in u-charts.js), so whatever raw timestamp the page
+        // feeds into `chartCategories` is what shows up.
+        showCategory: true,
       },
       column: {
         width: isCompact ? 14 : 18,
@@ -370,6 +461,7 @@ async function renderChart() {
       scheduleRender(120)
       return
     }
+    patchTextBaseline(context)
     chart = new uCharts({
       ...chartOptions,
       context,
