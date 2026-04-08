@@ -13,26 +13,17 @@
       </view>
     </view>
 
-    <view
-      class="filter-wrapper"
-      data-debug-scope="history-filter"
-      @click="onFilterWrapperClick"
-    >
+    <view class="filter-wrapper">
       <view
         class="filter-item"
         v-if="appStore.settings.showDeviceFeatures"
-        @click="onFieldContainerClick('device-field', $event)"
       >
         <text class="filter-label">设备编号</text>
         <input
           class="filter-input"
           :value="d_no"
-          data-debug-id="device-field"
           placeholder="请输入设备编号"
           confirm-type="done"
-          @click="onFieldMouseConfirm('device-field', $event)"
-          @focus="onFieldFocus('device-field', $event)"
-          @blur="onFieldBlur('device-field', $event)"
           @input="onDeviceInput"
           @confirm="onFilter"
         />
@@ -42,7 +33,6 @@
         <text class="filter-label">开始时间</text>
         <DateTimePickerField
           field="start"
-          debug-id="start-datetime-field"
           placeholder="请选择开始时间"
           default-start-time="00:00:00"
           default-end-time="23:59:59"
@@ -57,7 +47,6 @@
         <text class="filter-label">结束时间</text>
         <DateTimePickerField
           field="end"
-          debug-id="end-datetime-field"
           placeholder="请选择结束时间"
           default-start-time="00:00:00"
           default-end-time="23:59:59"
@@ -210,7 +199,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from "vue"
+import { computed, onMounted, onUnmounted, ref, shallowRef } from "vue"
 import DateTimePickerField from "@/components/DateTimePickerField.vue"
 import UChartCanvas from "@/components/charts/UChartCanvas.vue"
 import { getFormatChart, getFormatPaged } from "@/api/get_format_limit"
@@ -254,9 +243,6 @@ let hasPendingChartRefresh = false
 const CHART_REFRESH_INTERVAL = 10000
 const MAX_CHART_POINTS_MOBILE = 120
 const MAX_CHART_POINTS_DESKTOP = 200
-const DEBUG_TAG = "[HistoryDataDebug:sensor]"
-const H5_DEBUG_FIELD_IDS = ["device-field"]
-const H5_PICKER_FIELD_IDS = new Set()
 
 const totalPages = computed(() => Math.ceil(total.value / pageSize.value) || 1)
 const currentChartType = computed(() => chartTypes[chartTypeIndex.value].value)
@@ -322,15 +308,6 @@ onMounted(async () => {
     type: "subscribe",
     topics: ["sensor_update"],
   })
-
-  debugLog("mounted", {
-    showDeviceFeatures: appStore.value.settings.showDeviceFeatures,
-  })
-
-  // #ifdef H5
-  document.addEventListener("click", handleDebugDocumentClick, true)
-  logInitialDomState()
-  // #endif
 })
 
 onUnmounted(() => {
@@ -339,23 +316,10 @@ onUnmounted(() => {
     clearTimeout(wsRefreshTimer)
     wsRefreshTimer = null
   }
-
-  // #ifdef H5
-  document.removeEventListener("click", handleDebugDocumentClick, true)
-  // #endif
 })
 
 async function fetchData() {
   try {
-    debugLog("fetchData:start", {
-      d_no: d_no.value,
-      startDate: startDate.value,
-      startTime: startTime.value,
-      endDate: endDate.value,
-      endTime: endTime.value,
-      page: currentPage.value,
-      pageSize: pageSize.value,
-    })
     const res = await getFormatPaged(
       currentPage.value,
       pageSize.value,
@@ -377,10 +341,6 @@ async function fetchData() {
     }
 
     tableData.value = response
-    debugLog("fetchData:done", {
-      total: total.value,
-      rows: response.length,
-    })
   } catch (error) {
     console.error("获取数据失败:", error)
     uni.showToast({
@@ -400,14 +360,6 @@ async function fetchChartData() {
   const requestId = ++chartRequestId
   lastChartFetchAt = Date.now()
   try {
-    debugLog("fetchChartData:start", {
-      d_no: d_no.value,
-      startDate: startDate.value,
-      startTime: startTime.value,
-      endDate: endDate.value,
-      endTime: endTime.value,
-      chartType: currentChartType.value,
-    })
     const res = await getFormatChart(
       d_no.value,
       buildDateTimeParam(startDate.value, startTime.value, false),
@@ -443,10 +395,6 @@ async function fetchChartData() {
     chartSeries.value = normalizedSeries
     chartYAxis.value = createValueAxisConfig(normalizedSeries, {
       forceZeroMin: true,
-    })
-    debugLog("fetchChartData:done", {
-      points: sampled.times.length,
-      series: normalizedSeries.length,
     })
   } catch (error) {
     console.error("获取图表数据失败:", error)
@@ -486,247 +434,16 @@ function readEventValue(e) {
   return ""
 }
 
-function debugLog(action, payload) {
-  console.log(DEBUG_TAG, action, payload || "")
-}
-
-function describeDomNode(node) {
-  if (!node) return "null"
-
-  const tagName = (node.tagName || node.nodeName || "unknown").toLowerCase()
-  const id = node.id ? `#${node.id}` : ""
-  const className =
-    node.classList && node.classList.length > 0
-      ? `.${Array.from(node.classList).join(".")}`
-      : ""
-  const typeAttr =
-    typeof node.getAttribute === "function" && node.getAttribute("type")
-      ? `[type=${node.getAttribute("type")}]`
-      : ""
-  const debugId =
-    typeof node.getAttribute === "function" && node.getAttribute("data-debug-id")
-      ? `[data-debug-id=${node.getAttribute("data-debug-id")}]`
-      : ""
-
-  return `${tagName}${id}${className}${typeAttr}${debugId}`
-}
-
-function getDomRect(node) {
-  if (!node?.getBoundingClientRect) return null
-  const rect = node.getBoundingClientRect()
-  return {
-    left: Math.round(rect.left),
-    top: Math.round(rect.top),
-    width: Math.round(rect.width),
-    height: Math.round(rect.height),
-  }
-}
-
-function getDomStyle(node) {
-  if (!node || typeof window === "undefined") return null
-  const style = window.getComputedStyle(node)
-  return {
-    display: style.display,
-    visibility: style.visibility,
-    pointerEvents: style.pointerEvents,
-    position: style.position,
-    zIndex: style.zIndex,
-    opacity: style.opacity,
-  }
-}
-
-function summarizeEvent(e) {
-  const payload = {
-    type: e?.type || "",
-    target: describeDomNode(e?.target),
-    currentTarget: describeDomNode(e?.currentTarget),
-  }
-
-  if (typeof document !== "undefined") {
-    payload.activeElement = describeDomNode(document.activeElement)
-  }
-
-  if (typeof e?.clientX === "number") {
-    payload.clientX = Math.round(e.clientX)
-  }
-  if (typeof e?.clientY === "number") {
-    payload.clientY = Math.round(e.clientY)
-  }
-
-  return payload
-}
-
-function getH5Host(fieldId) {
-  if (typeof document === "undefined") return null
-  return document.querySelector(`[data-debug-id="${fieldId}"]`)
-}
-
-function getH5NativeInput(fieldId) {
-  const host = getH5Host(fieldId)
-  if (!host) return null
-
-  if (host.matches?.("input, textarea, select")) {
-    return host
-  }
-
-  return host.querySelector("input, textarea, select")
-}
-
-function logFieldDomState(fieldId, label = fieldId) {
-  if (typeof document === "undefined") return
-
-  const host = getH5Host(fieldId)
-  const nativeInput = getH5NativeInput(fieldId)
-  const hostRect = host?.getBoundingClientRect?.()
-  const centerX = hostRect ? hostRect.left + hostRect.width / 2 : null
-  const centerY = hostRect ? hostRect.top + hostRect.height / 2 : null
-  const stack =
-    centerX !== null && centerY !== null && document.elementsFromPoint
-      ? document
-          .elementsFromPoint(centerX, centerY)
-          .slice(0, 6)
-          .map((node) => describeDomNode(node))
-      : []
-
-  debugLog(`dom-state:${label}`, {
-    host: describeDomNode(host),
-    nativeInput: describeDomNode(nativeInput),
-    hostRect: getDomRect(host),
-    nativeRect: getDomRect(nativeInput),
-    hostStyle: getDomStyle(host),
-    nativeStyle: getDomStyle(nativeInput),
-    stack,
-    activeElement:
-      typeof document !== "undefined"
-        ? describeDomNode(document.activeElement)
-        : "null",
-  })
-}
-
-function focusH5Field(fieldId) {
-  if (typeof document === "undefined") return
-
-  const nativeInput = getH5NativeInput(fieldId)
-  debugLog(`focus-attempt:${fieldId}`, {
-    nativeInput: describeDomNode(nativeInput),
-  })
-
-  if (!nativeInput) {
-    logFieldDomState(fieldId, `${fieldId}-missing-native`)
-    return
-  }
-
-  nativeInput.removeAttribute?.("readonly")
-  nativeInput.removeAttribute?.("disabled")
-  nativeInput.style.pointerEvents = "auto"
-  nativeInput.style.userSelect = "text"
-  nativeInput.style.webkitUserSelect = "text"
-
-  nativeInput.focus?.()
-  nativeInput.select?.()
-
-  if (
-    H5_PICKER_FIELD_IDS.has(fieldId) &&
-    typeof nativeInput.showPicker === "function"
-  ) {
-    try {
-      nativeInput.showPicker()
-      debugLog(`showPicker:${fieldId}`, {
-        nativeInput: describeDomNode(nativeInput),
-      })
-    } catch (error) {
-      console.warn(DEBUG_TAG, `showPicker failed for ${fieldId}`, error)
-    }
-  }
-
-  setTimeout(() => {
-    logFieldDomState(fieldId, `${fieldId}-after-focus`)
-  }, 0)
-}
-
-async function logInitialDomState() {
-  if (typeof document === "undefined") return
-
-  await nextTick()
-  H5_DEBUG_FIELD_IDS.forEach((fieldId, index) => {
-    setTimeout(() => {
-      logFieldDomState(fieldId, `mounted-${fieldId}`)
-    }, 200 + index * 120)
-  })
-}
-
-function handleDebugDocumentClick(e) {
-  if (typeof Element === "undefined" || !(e.target instanceof Element)) return
-
-  const inFilterScope = e.target.closest('[data-debug-scope="history-filter"]')
-  if (!inFilterScope) return
-
-  const path =
-    typeof e.composedPath === "function"
-      ? e.composedPath()
-          .slice(0, 6)
-          .map((node) => describeDomNode(node))
-      : []
-
-  debugLog("document-capture-click", {
-    ...summarizeEvent(e),
-    path,
-  })
-}
-
-function onFilterWrapperClick(e) {
-  debugLog("filter-wrapper-click", summarizeEvent(e))
-}
-
-function onFieldContainerClick(fieldId, e) {
-  debugLog(`container-click:${fieldId}`, summarizeEvent(e))
-  focusH5Field(fieldId)
-}
-
-function onFieldMouseConfirm(fieldId, e) {
-  debugLog(`mouse-confirm:${fieldId}`, summarizeEvent(e))
-  focusH5Field(fieldId)
-}
-
-function onFieldFocus(fieldId, e) {
-  debugLog(`focus:${fieldId}`, summarizeEvent(e))
-}
-
-function onFieldBlur(fieldId, e) {
-  debugLog(`blur:${fieldId}`, summarizeEvent(e))
-}
-
-function onFieldInput(fieldId, e) {
-  debugLog(`input:${fieldId}`, {
-    ...summarizeEvent(e),
-    value: readEventValue(e),
-  })
-}
-
 function onDeviceInput(e) {
   d_no.value = readEventValue(e)
-  debugLog("input:device-field", {
-    ...summarizeEvent(e),
-    value: d_no.value,
-  })
 }
 
 function onStartDateTimeChange(value) {
   applyDateTimeValue("start", value)
-  debugLog("change:start-datetime-panel", {
-    value,
-    startDate: startDate.value,
-    startTime: startTime.value,
-  })
 }
 
 function onEndDateTimeChange(value) {
   applyDateTimeValue("end", value)
-  debugLog("change:end-datetime-panel", {
-    value,
-    endDate: endDate.value,
-    endTime: endTime.value,
-  })
 }
 
 function buildDateTimeParam(date, time, isEnd) {
@@ -815,14 +532,6 @@ async function onFilter() {
   if (!appStore.value.settings.showDeviceFeatures) {
     d_no.value = ""
   }
-
-  debugLog("filter:submit", {
-    d_no: d_no.value,
-    startDate: startDate.value,
-    startTime: startTime.value,
-    endDate: endDate.value,
-    endTime: endTime.value,
-  })
   currentPage.value = 1
   await fetchData()
   await fetchChartData()
@@ -835,13 +544,6 @@ function onReset() {
   endDate.value = ""
   endTime.value = DEFAULT_END_TIME
   currentPage.value = 1
-  debugLog("filter:reset", {
-    d_no: d_no.value,
-    startDate: startDate.value,
-    startTime: startTime.value,
-    endDate: endDate.value,
-    endTime: endTime.value,
-  })
   fetchData()
   fetchChartData()
 }

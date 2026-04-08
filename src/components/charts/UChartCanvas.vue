@@ -117,12 +117,18 @@ let lastChartWidth = 0
 let lastChartHeight = 0
 let lastDataSignature = ""
 let renderSeq = 0
-let tooltipHideTimer = null
 let zeroRectRetryCount = 0
 let lastChartOptions = null
 const scrollRef = ref(null)
 let delayedRenderTimer = null
 const MAX_ZERO_RECT_RETRIES = 60
+// Tooltip mousemove throttle — uCharts' showToolTip does a full canvas redraw
+// (axes + grid + all series), so we must coalesce move events. 50ms ≈ 20fps,
+// plenty of hover responsiveness at a fraction of the CPU cost of 60fps.
+const TOOLTIP_MOVE_INTERVAL = 50
+let tooltipMoveTimer = null
+let tooltipMoveLastAt = 0
+let pendingTooltipEvent = null
 
 const hasData = computed(() => {
   return props.categories.length > 0 && props.series.length > 0
@@ -191,10 +197,11 @@ onUnmounted(() => {
     clearTimeout(resizeTimer)
     resizeTimer = null
   }
-  if (tooltipHideTimer) {
-    clearTimeout(tooltipHideTimer)
-    tooltipHideTimer = null
+  if (tooltipMoveTimer) {
+    clearTimeout(tooltipMoveTimer)
+    tooltipMoveTimer = null
   }
+  pendingTooltipEvent = null
   if (delayedRenderTimer) {
     clearTimeout(delayedRenderTimer)
     delayedRenderTimer = null
@@ -264,10 +271,7 @@ async function renderChart() {
     lastDataSignature = ""
     lastChartOptions = null
     zeroRectRetryCount = 0
-    if (tooltipHideTimer) {
-      clearTimeout(tooltipHideTimer)
-      tooltipHideTimer = null
-    }
+    cancelPendingTooltip()
     return
   }
 
@@ -381,16 +385,6 @@ async function renderChart() {
   lastDataSignature = dataSignature
 }
 
-function scheduleHideTooltip(delay = 900) {
-  if (tooltipHideTimer) {
-    clearTimeout(tooltipHideTimer)
-  }
-
-  tooltipHideTimer = setTimeout(() => {
-    hideTooltip()
-  }, delay)
-}
-
 function hideTooltip() {
   if (!chart || !lastChartOptions) return
   chart.updateData(lastChartOptions)
@@ -406,15 +400,49 @@ function resetScrollPosition() {
 }
 
 function handleTap(event) {
+  cancelPendingTooltip()
+  tooltipMoveLastAt = Date.now()
   showToolTip(normalizeTooltipEvent(event))
 }
 
 function handleMove(event) {
-  showToolTip(normalizeTooltipEvent(event))
+  // Every move triggers a full canvas redraw in uCharts, so we MUST throttle.
+  // Coalesce bursts into one tail-call per TOOLTIP_MOVE_INTERVAL window.
+  const normalized = normalizeTooltipEvent(event)
+  const now = Date.now()
+  const elapsed = now - tooltipMoveLastAt
+
+  if (elapsed >= TOOLTIP_MOVE_INTERVAL) {
+    cancelPendingTooltip()
+    tooltipMoveLastAt = now
+    showToolTip(normalized)
+    return
+  }
+
+  pendingTooltipEvent = normalized
+  if (tooltipMoveTimer) return
+  tooltipMoveTimer = setTimeout(() => {
+    tooltipMoveTimer = null
+    const evt = pendingTooltipEvent
+    pendingTooltipEvent = null
+    if (!evt) return
+    tooltipMoveLastAt = Date.now()
+    showToolTip(evt)
+  }, TOOLTIP_MOVE_INTERVAL - elapsed)
 }
 
 function handleLeave() {
-  scheduleHideTooltip(120)
+  cancelPendingTooltip()
+  // One repaint to clear the tooltip overlay; NOT repeated per move.
+  hideTooltip()
+}
+
+function cancelPendingTooltip() {
+  if (tooltipMoveTimer) {
+    clearTimeout(tooltipMoveTimer)
+    tooltipMoveTimer = null
+  }
+  pendingTooltipEvent = null
 }
 
 function showToolTip(event) {
@@ -426,7 +454,6 @@ function showToolTip(event) {
       return `${item.name}: ${item.data ?? "-"}${unit}`
     },
   })
-  scheduleHideTooltip()
 }
 
 function normalizeTooltipEvent(event) {
