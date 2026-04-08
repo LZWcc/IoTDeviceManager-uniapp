@@ -10,15 +10,15 @@
       :style="{ minHeight: height }"
     >
       <!-- #ifdef H5 -->
-      <view class="canvas-scroll canvas-scroll-native">
+      <view ref="scrollRef" class="canvas-scroll canvas-scroll-native">
         <view class="canvas-box" :style="{ height, width: `${canvasWidth}px` }">
           <canvas
             :id="canvasId"
             :canvas-id="canvasId"
             class="uchart-canvas"
             :style="{ width: `${canvasWidth}px`, height }"
-            @click="handleTap"
             @tap="handleTap"
+            @click="handleTap"
             @touchstart="handleTap"
             @mousemove="handleMove"
             @touchmove="handleMove"
@@ -112,6 +112,7 @@ const pixelRatio = 1
 const canvasWidth = ref(0)
 let chart = null
 let resizeTimer = null
+let resizeObserver = null
 let lastChartWidth = 0
 let lastChartHeight = 0
 let lastDataSignature = ""
@@ -119,6 +120,9 @@ let renderSeq = 0
 let tooltipHideTimer = null
 let zeroRectRetryCount = 0
 let lastChartOptions = null
+const scrollRef = ref(null)
+let delayedRenderTimer = null
+const MAX_ZERO_RECT_RETRIES = 60
 
 const hasData = computed(() => {
   return props.categories.length > 0 && props.series.length > 0
@@ -131,17 +135,56 @@ watch(
   },
 )
 
+watch(
+  hasData,
+  (value) => {
+    if (!value) {
+      zeroRectRetryCount = 0
+      if (delayedRenderTimer) {
+        clearTimeout(delayedRenderTimer)
+        delayedRenderTimer = null
+      }
+      return
+    }
+
+    zeroRectRetryCount = 0
+    scheduleRender(30)
+    if (delayedRenderTimer) {
+      clearTimeout(delayedRenderTimer)
+    }
+    delayedRenderTimer = setTimeout(() => {
+      if (hasData.value) {
+        scheduleRender(30)
+      }
+    }, 260)
+  },
+  { immediate: true },
+)
+
 onMounted(async () => {
   await renderChart()
 
   // #ifdef H5
   window.addEventListener("resize", scheduleRender)
+  if (typeof ResizeObserver !== "undefined") {
+    const viewportElement = document.getElementById(viewportId)
+    if (viewportElement) {
+      resizeObserver = new ResizeObserver(() => {
+        scheduleRender(60)
+      })
+      resizeObserver.observe(viewportElement)
+    }
+  }
   // #endif
 })
 
 onUnmounted(() => {
   // #ifdef H5
   window.removeEventListener("resize", scheduleRender)
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
   // #endif
 
   if (resizeTimer) {
@@ -151,6 +194,10 @@ onUnmounted(() => {
   if (tooltipHideTimer) {
     clearTimeout(tooltipHideTimer)
     tooltipHideTimer = null
+  }
+  if (delayedRenderTimer) {
+    clearTimeout(delayedRenderTimer)
+    delayedRenderTimer = null
   }
   chart = null
   lastChartOptions = null
@@ -227,9 +274,10 @@ async function renderChart() {
   const rect = await getCanvasRect()
   if (currentSeq !== renderSeq) return
   if (!rect?.width || !rect?.height) {
-    if (zeroRectRetryCount < 8) {
+    if (zeroRectRetryCount < MAX_ZERO_RECT_RETRIES) {
       zeroRectRetryCount += 1
-      scheduleRender(120)
+      const retryDelay = zeroRectRetryCount < 12 ? 120 : 220
+      scheduleRender(retryDelay)
     }
     return
   }
@@ -308,18 +356,23 @@ async function renderChart() {
     currentSeq !== renderSeq
 
   if (!shouldRecreate && dataSignature === lastDataSignature) {
+    resetScrollPosition()
     return
   }
 
   if (shouldRecreate) {
     const context = uni.createCanvasContext(canvasId, instance?.proxy)
-    if (!context) return
+    if (!context) {
+      scheduleRender(120)
+      return
+    }
     chart = new uCharts({
       ...chartOptions,
       context,
     })
     lastChartWidth = resolvedWidth
     lastChartHeight = chartHeight
+    resetScrollPosition()
   } else {
     chart.updateData(chartOptions)
   }
@@ -341,6 +394,15 @@ function scheduleHideTooltip(delay = 900) {
 function hideTooltip() {
   if (!chart || !lastChartOptions) return
   chart.updateData(lastChartOptions)
+}
+
+function resetScrollPosition() {
+  // #ifdef H5
+  const el = scrollRef.value
+  if (el && typeof el.scrollLeft === "number") {
+    el.scrollLeft = 0
+  }
+  // #endif
 }
 
 function handleTap(event) {
@@ -367,131 +429,59 @@ function showToolTip(event) {
   scheduleHideTooltip()
 }
 
-function isFiniteNumber(value) {
-  return typeof value === "number" && Number.isFinite(value)
-}
-
-function getCanvasBoundingRect() {
-  // #ifdef H5
-  if (typeof document !== "undefined") {
-    const canvasEl = document.getElementById(canvasId)
-    if (canvasEl && typeof canvasEl.getBoundingClientRect === "function") {
-      return canvasEl.getBoundingClientRect()
-    }
-  }
-  // #endif
-  return null
-}
-
-function convertClientPointToCanvas(clientX, clientY) {
-  const rect = getCanvasBoundingRect()
-  if (!rect) return null
-
-  const x = clientX - rect.left
-  const y = clientY - rect.top
-
-  if (!isFiniteNumber(x) || !isFiniteNumber(y)) return null
-  return { x, y }
-}
-
-function convertPagePointToCanvas(pageX, pageY) {
-  // #ifdef H5
-  const win = typeof window !== "undefined" ? window : null
-  const scrollX = win ? win.pageXOffset || 0 : 0
-  const scrollY = win ? win.pageYOffset || 0 : 0
-  return convertClientPointToCanvas(pageX - scrollX, pageY - scrollY)
-  // #endif
-  // #ifndef H5
-  return null
-  // #endif
-}
-
-function resolveTouchPoint(touchPoint) {
-  if (!touchPoint) return null
-
-  if (isFiniteNumber(touchPoint.x) && isFiniteNumber(touchPoint.y)) {
-    return { x: touchPoint.x, y: touchPoint.y }
-  }
-
-  if (isFiniteNumber(touchPoint.clientX) && isFiniteNumber(touchPoint.clientY)) {
-    return convertClientPointToCanvas(touchPoint.clientX, touchPoint.clientY)
-  }
-
-  if (isFiniteNumber(touchPoint.pageX) && isFiniteNumber(touchPoint.pageY)) {
-    return convertPagePointToCanvas(touchPoint.pageX, touchPoint.pageY)
-  }
-
-  return null
-}
-
-function extractTooltipPoint(event) {
-  if (!event) return null
-
-  if (isFiniteNumber(event?.detail?.x) && isFiniteNumber(event?.detail?.y)) {
-    return { x: event.detail.x, y: event.detail.y }
-  }
-
-  if (isFiniteNumber(event?.x) && isFiniteNumber(event?.y)) {
-    return { x: event.x, y: event.y }
-  }
-
-  const touchPoint =
-    event?.changedTouches?.[0] ||
-    event?.touches?.[0] ||
-    event?.mp?.changedTouches?.[0] ||
-    event?.mp?.touches?.[0]
-  const resolvedTouch = resolveTouchPoint(touchPoint)
-  if (resolvedTouch) return resolvedTouch
-
-  if (isFiniteNumber(event?.offsetX) && isFiniteNumber(event?.offsetY)) {
-    return { x: event.offsetX, y: event.offsetY }
-  }
-
-  if (isFiniteNumber(event?.clientX) && isFiniteNumber(event?.clientY)) {
-    return convertClientPointToCanvas(event.clientX, event.clientY)
-  }
-
-  if (isFiniteNumber(event?.pageX) && isFiniteNumber(event?.pageY)) {
-    return convertPagePointToCanvas(event.pageX, event.pageY)
-  }
-
-  return null
-}
-
 function normalizeTooltipEvent(event) {
-  if (!event) return event
-
   const point = extractTooltipPoint(event)
   if (!point) return event
 
-  const touchPoint = { x: point.x, y: point.y }
-  const detail = {
-    ...(event.detail || {}),
+  const normalized = {
     x: point.x,
     y: point.y,
-  }
-  const mp = {
-    ...(event.mp || {}),
-    detail: {
-      ...(event?.mp?.detail || {}),
-      x: point.x,
-      y: point.y,
-    },
-    changedTouches: event?.mp?.changedTouches?.length
-      ? event.mp.changedTouches
-      : [touchPoint],
-    touches: event?.mp?.touches?.length ? event.mp.touches : [touchPoint],
   }
 
   return {
-    ...event,
-    detail,
-    x: point.x,
-    y: point.y,
-    changedTouches: event?.changedTouches?.length ? event.changedTouches : [touchPoint],
-    touches: event?.touches?.length ? event.touches : [touchPoint],
-    mp,
+    ...(event || {}),
+    changedTouches: [normalized],
+    touches: [normalized],
+    mp: {
+      ...(event?.mp || {}),
+      changedTouches: [normalized],
+      touches: [normalized],
+    },
   }
+}
+
+function extractTooltipPoint(event) {
+  const detailX = Number(event?.detail?.x)
+  const detailY = Number(event?.detail?.y)
+  if (Number.isFinite(detailX) && Number.isFinite(detailY)) {
+    return { x: detailX, y: detailY }
+  }
+
+  const touch =
+    event?.changedTouches?.[0] ||
+    event?.touches?.[0] ||
+    event?.mp?.changedTouches?.[0]
+  const touchX = Number(touch?.x)
+  const touchY = Number(touch?.y)
+  if (Number.isFinite(touchX) && Number.isFinite(touchY)) {
+    return { x: touchX, y: touchY }
+  }
+
+  // #ifdef H5
+  const clientX = Number(touch?.clientX ?? event?.clientX)
+  const clientY = Number(touch?.clientY ?? event?.clientY)
+  if (Number.isFinite(clientX) && Number.isFinite(clientY)) {
+    const canvasEl = document.getElementById(canvasId)
+    if (canvasEl) {
+      const rect = canvasEl.getBoundingClientRect()
+      const x = Math.max(0, Math.min(clientX - rect.left, rect.width))
+      const y = Math.max(0, Math.min(clientY - rect.top, rect.height))
+      return { x, y }
+    }
+  }
+  // #endif
+
+  return null
 }
 </script>
 

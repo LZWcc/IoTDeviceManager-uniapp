@@ -13,61 +13,66 @@
       </view>
     </view>
 
-    <view class="filter-wrapper">
-      <view class="filter-item" v-if="appStore.settings.showDeviceFeatures">
+    <view
+      class="filter-wrapper"
+      data-debug-scope="history-filter"
+      @click="onFilterWrapperClick"
+    >
+      <view
+        class="filter-item"
+        v-if="appStore.settings.showDeviceFeatures"
+        @click="onFieldContainerClick('device-field', $event)"
+      >
         <text class="filter-label">设备编号</text>
         <input
           class="filter-input"
-          type="text"
           :value="d_no"
-          @input="onDeviceInput"
+          data-debug-id="device-field"
           placeholder="请输入设备编号"
           confirm-type="done"
+          @click="onFieldMouseConfirm('device-field', $event)"
+          @focus="onFieldFocus('device-field', $event)"
+          @blur="onFieldBlur('device-field', $event)"
+          @input="onDeviceInput"
+          @confirm="onFilter"
         />
       </view>
 
       <view class="filter-item">
         <text class="filter-label">开始时间</text>
-        <!-- #ifdef H5 -->
-        <input
-          class="filter-input date-input"
-          type="date"
-          :value="startDate"
-          @change="onStartDateChange"
+        <DateTimePickerField
+          field="start"
+          debug-id="start-datetime-field"
+          placeholder="请选择开始时间"
+          default-start-time="00:00:00"
+          default-end-time="23:59:59"
+          :start-value="startDateTimeText"
+          :end-value="endDateTimeText"
+          @update:startValue="onStartDateTimeChange"
+          @update:endValue="onEndDateTimeChange"
         />
-        <!-- #endif -->
-        <!-- #ifndef H5 -->
-        <picker mode="date" :value="startDate" @change="onStartDateChange">
-          <view class="date-picker">
-            <text>{{ startDate || "选择日期" }}</text>
-          </view>
-        </picker>
-        <!-- #endif -->
       </view>
 
       <view class="filter-item">
         <text class="filter-label">结束时间</text>
-        <!-- #ifdef H5 -->
-        <input
-          class="filter-input date-input"
-          type="date"
-          :value="endDate"
-          @change="onEndDateChange"
+        <DateTimePickerField
+          field="end"
+          debug-id="end-datetime-field"
+          placeholder="请选择结束时间"
+          default-start-time="00:00:00"
+          default-end-time="23:59:59"
+          :start-value="startDateTimeText"
+          :end-value="endDateTimeText"
+          @update:startValue="onStartDateTimeChange"
+          @update:endValue="onEndDateTimeChange"
         />
-        <!-- #endif -->
-        <!-- #ifndef H5 -->
-        <picker mode="date" :value="endDate" @change="onEndDateChange">
-          <view class="date-picker">
-            <text>{{ endDate || "选择日期" }}</text>
-          </view>
-        </picker>
-        <!-- #endif -->
       </view>
 
       <view class="filter-actions">
         <button class="query-btn" @click="onFilter">查询</button>
         <button class="reset-btn" @click="onReset">重置</button>
       </view>
+
     </view>
 
     <view class="table-wrapper">
@@ -179,7 +184,22 @@
     </view>
 
     <view class="chart-wrapper">
+      <view class="chart-toolbar">
+        <picker
+          mode="selector"
+          :range="chartTypes"
+          range-key="label"
+          :value="chartTypeIndex"
+          @change="onChartTypeChange"
+        >
+          <view class="chart-type-picker">
+            <text>{{ chartTypes[chartTypeIndex].label }}</text>
+            <text class="chart-type-arrow">▼</text>
+          </view>
+        </picker>
+      </view>
       <UChartCanvas
+        :type="currentChartType"
         :categories="chartCategories"
         :series="chartSeries"
         :yAxis="chartYAxis"
@@ -190,7 +210,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, shallowRef } from "vue"
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from "vue"
+import DateTimePickerField from "@/components/DateTimePickerField.vue"
 import UChartCanvas from "@/components/charts/UChartCanvas.vue"
 import { getFormatChart, getFormatPaged } from "@/api/get_format_limit"
 import { appStore } from "@/stores/index"
@@ -204,8 +225,12 @@ import { navigateToPage } from "@/utils/navigation"
 
 const type = ref("sensor")
 const d_no = ref("")
+const DEFAULT_START_TIME = "00:00:00"
+const DEFAULT_END_TIME = "23:59:59"
 const startDate = ref("")
+const startTime = ref(DEFAULT_START_TIME)
 const endDate = ref("")
+const endTime = ref(DEFAULT_END_TIME)
 const tableData = ref([])
 const tableHeader = ref([])
 const total = ref(0)
@@ -213,6 +238,11 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const pageSizes = [5, 10, 20, 50, 100]
 const pageSizeIndex = ref(1)
+const chartTypeIndex = ref(0)
+const chartTypes = [
+  { label: "折线图", value: "line" },
+  { label: "柱状图", value: "bar" },
+]
 const chartCategories = shallowRef([])
 const chartSeries = shallowRef([])
 const chartYAxis = shallowRef({ disabled: false, splitNumber: 5 })
@@ -224,8 +254,18 @@ let hasPendingChartRefresh = false
 const CHART_REFRESH_INTERVAL = 10000
 const MAX_CHART_POINTS_MOBILE = 120
 const MAX_CHART_POINTS_DESKTOP = 200
+const DEBUG_TAG = "[HistoryDataDebug:sensor]"
+const H5_DEBUG_FIELD_IDS = ["device-field"]
+const H5_PICKER_FIELD_IDS = new Set()
 
 const totalPages = computed(() => Math.ceil(total.value / pageSize.value) || 1)
+const currentChartType = computed(() => chartTypes[chartTypeIndex.value].value)
+const startDateTimeText = computed(() =>
+  buildDateTimeText(startDate.value, startTime.value, false),
+)
+const endDateTimeText = computed(() =>
+  buildDateTimeText(endDate.value, endTime.value, true),
+)
 
 const formattedTableData = computed(() => {
   return tableData.value.map((row) => {
@@ -257,8 +297,8 @@ const handleWsData = (data) => {
   if (!data.timestamp) return
 
   const dataTime = new Date(data.timestamp)
-  const start = startDate.value ? new Date(startDate.value) : null
-  const end = endDate.value ? new Date(endDate.value) : null
+  const start = parseDateTime(startDate.value, startTime.value, false)
+  const end = parseDateTime(endDate.value, endTime.value, true)
 
   if ((!start || dataTime >= start) && (!end || dataTime <= end)) {
     scheduleChartRefresh()
@@ -282,6 +322,15 @@ onMounted(async () => {
     type: "subscribe",
     topics: ["sensor_update"],
   })
+
+  debugLog("mounted", {
+    showDeviceFeatures: appStore.value.settings.showDeviceFeatures,
+  })
+
+  // #ifdef H5
+  document.addEventListener("click", handleDebugDocumentClick, true)
+  logInitialDomState()
+  // #endif
 })
 
 onUnmounted(() => {
@@ -290,16 +339,29 @@ onUnmounted(() => {
     clearTimeout(wsRefreshTimer)
     wsRefreshTimer = null
   }
+
+  // #ifdef H5
+  document.removeEventListener("click", handleDebugDocumentClick, true)
+  // #endif
 })
 
 async function fetchData() {
   try {
+    debugLog("fetchData:start", {
+      d_no: d_no.value,
+      startDate: startDate.value,
+      startTime: startTime.value,
+      endDate: endDate.value,
+      endTime: endTime.value,
+      page: currentPage.value,
+      pageSize: pageSize.value,
+    })
     const res = await getFormatPaged(
       currentPage.value,
       pageSize.value,
       d_no.value,
-      startDate.value ? `${startDate.value} 00:00:00` : "",
-      endDate.value ? `${endDate.value} 23:59:59` : "",
+      buildDateTimeParam(startDate.value, startTime.value, false),
+      buildDateTimeParam(endDate.value, endTime.value, true),
       type.value,
     )
     const response = res.data.data
@@ -315,6 +377,10 @@ async function fetchData() {
     }
 
     tableData.value = response
+    debugLog("fetchData:done", {
+      total: total.value,
+      rows: response.length,
+    })
   } catch (error) {
     console.error("获取数据失败:", error)
     uni.showToast({
@@ -334,10 +400,18 @@ async function fetchChartData() {
   const requestId = ++chartRequestId
   lastChartFetchAt = Date.now()
   try {
+    debugLog("fetchChartData:start", {
+      d_no: d_no.value,
+      startDate: startDate.value,
+      startTime: startTime.value,
+      endDate: endDate.value,
+      endTime: endTime.value,
+      chartType: currentChartType.value,
+    })
     const res = await getFormatChart(
       d_no.value,
-      startDate.value ? `${startDate.value} 00:00:00` : "",
-      endDate.value ? `${endDate.value} 23:59:59` : "",
+      buildDateTimeParam(startDate.value, startTime.value, false),
+      buildDateTimeParam(endDate.value, endTime.value, true),
       type.value,
     )
     const { times, series } = res.data.data
@@ -362,13 +436,17 @@ async function fetchChartData() {
         ...item,
         unit: item.unit || "",
       })),
-      "line",
+      currentChartType.value,
     )
 
     chartCategories.value = sampled.times
     chartSeries.value = normalizedSeries
     chartYAxis.value = createValueAxisConfig(normalizedSeries, {
       forceZeroMin: true,
+    })
+    debugLog("fetchChartData:done", {
+      points: sampled.times.length,
+      series: normalizedSeries.length,
     })
   } catch (error) {
     console.error("获取图表数据失败:", error)
@@ -408,16 +486,329 @@ function readEventValue(e) {
   return ""
 }
 
+function debugLog(action, payload) {
+  console.log(DEBUG_TAG, action, payload || "")
+}
+
+function describeDomNode(node) {
+  if (!node) return "null"
+
+  const tagName = (node.tagName || node.nodeName || "unknown").toLowerCase()
+  const id = node.id ? `#${node.id}` : ""
+  const className =
+    node.classList && node.classList.length > 0
+      ? `.${Array.from(node.classList).join(".")}`
+      : ""
+  const typeAttr =
+    typeof node.getAttribute === "function" && node.getAttribute("type")
+      ? `[type=${node.getAttribute("type")}]`
+      : ""
+  const debugId =
+    typeof node.getAttribute === "function" && node.getAttribute("data-debug-id")
+      ? `[data-debug-id=${node.getAttribute("data-debug-id")}]`
+      : ""
+
+  return `${tagName}${id}${className}${typeAttr}${debugId}`
+}
+
+function getDomRect(node) {
+  if (!node?.getBoundingClientRect) return null
+  const rect = node.getBoundingClientRect()
+  return {
+    left: Math.round(rect.left),
+    top: Math.round(rect.top),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+  }
+}
+
+function getDomStyle(node) {
+  if (!node || typeof window === "undefined") return null
+  const style = window.getComputedStyle(node)
+  return {
+    display: style.display,
+    visibility: style.visibility,
+    pointerEvents: style.pointerEvents,
+    position: style.position,
+    zIndex: style.zIndex,
+    opacity: style.opacity,
+  }
+}
+
+function summarizeEvent(e) {
+  const payload = {
+    type: e?.type || "",
+    target: describeDomNode(e?.target),
+    currentTarget: describeDomNode(e?.currentTarget),
+  }
+
+  if (typeof document !== "undefined") {
+    payload.activeElement = describeDomNode(document.activeElement)
+  }
+
+  if (typeof e?.clientX === "number") {
+    payload.clientX = Math.round(e.clientX)
+  }
+  if (typeof e?.clientY === "number") {
+    payload.clientY = Math.round(e.clientY)
+  }
+
+  return payload
+}
+
+function getH5Host(fieldId) {
+  if (typeof document === "undefined") return null
+  return document.querySelector(`[data-debug-id="${fieldId}"]`)
+}
+
+function getH5NativeInput(fieldId) {
+  const host = getH5Host(fieldId)
+  if (!host) return null
+
+  if (host.matches?.("input, textarea, select")) {
+    return host
+  }
+
+  return host.querySelector("input, textarea, select")
+}
+
+function logFieldDomState(fieldId, label = fieldId) {
+  if (typeof document === "undefined") return
+
+  const host = getH5Host(fieldId)
+  const nativeInput = getH5NativeInput(fieldId)
+  const hostRect = host?.getBoundingClientRect?.()
+  const centerX = hostRect ? hostRect.left + hostRect.width / 2 : null
+  const centerY = hostRect ? hostRect.top + hostRect.height / 2 : null
+  const stack =
+    centerX !== null && centerY !== null && document.elementsFromPoint
+      ? document
+          .elementsFromPoint(centerX, centerY)
+          .slice(0, 6)
+          .map((node) => describeDomNode(node))
+      : []
+
+  debugLog(`dom-state:${label}`, {
+    host: describeDomNode(host),
+    nativeInput: describeDomNode(nativeInput),
+    hostRect: getDomRect(host),
+    nativeRect: getDomRect(nativeInput),
+    hostStyle: getDomStyle(host),
+    nativeStyle: getDomStyle(nativeInput),
+    stack,
+    activeElement:
+      typeof document !== "undefined"
+        ? describeDomNode(document.activeElement)
+        : "null",
+  })
+}
+
+function focusH5Field(fieldId) {
+  if (typeof document === "undefined") return
+
+  const nativeInput = getH5NativeInput(fieldId)
+  debugLog(`focus-attempt:${fieldId}`, {
+    nativeInput: describeDomNode(nativeInput),
+  })
+
+  if (!nativeInput) {
+    logFieldDomState(fieldId, `${fieldId}-missing-native`)
+    return
+  }
+
+  nativeInput.removeAttribute?.("readonly")
+  nativeInput.removeAttribute?.("disabled")
+  nativeInput.style.pointerEvents = "auto"
+  nativeInput.style.userSelect = "text"
+  nativeInput.style.webkitUserSelect = "text"
+
+  nativeInput.focus?.()
+  nativeInput.select?.()
+
+  if (
+    H5_PICKER_FIELD_IDS.has(fieldId) &&
+    typeof nativeInput.showPicker === "function"
+  ) {
+    try {
+      nativeInput.showPicker()
+      debugLog(`showPicker:${fieldId}`, {
+        nativeInput: describeDomNode(nativeInput),
+      })
+    } catch (error) {
+      console.warn(DEBUG_TAG, `showPicker failed for ${fieldId}`, error)
+    }
+  }
+
+  setTimeout(() => {
+    logFieldDomState(fieldId, `${fieldId}-after-focus`)
+  }, 0)
+}
+
+async function logInitialDomState() {
+  if (typeof document === "undefined") return
+
+  await nextTick()
+  H5_DEBUG_FIELD_IDS.forEach((fieldId, index) => {
+    setTimeout(() => {
+      logFieldDomState(fieldId, `mounted-${fieldId}`)
+    }, 200 + index * 120)
+  })
+}
+
+function handleDebugDocumentClick(e) {
+  if (typeof Element === "undefined" || !(e.target instanceof Element)) return
+
+  const inFilterScope = e.target.closest('[data-debug-scope="history-filter"]')
+  if (!inFilterScope) return
+
+  const path =
+    typeof e.composedPath === "function"
+      ? e.composedPath()
+          .slice(0, 6)
+          .map((node) => describeDomNode(node))
+      : []
+
+  debugLog("document-capture-click", {
+    ...summarizeEvent(e),
+    path,
+  })
+}
+
+function onFilterWrapperClick(e) {
+  debugLog("filter-wrapper-click", summarizeEvent(e))
+}
+
+function onFieldContainerClick(fieldId, e) {
+  debugLog(`container-click:${fieldId}`, summarizeEvent(e))
+  focusH5Field(fieldId)
+}
+
+function onFieldMouseConfirm(fieldId, e) {
+  debugLog(`mouse-confirm:${fieldId}`, summarizeEvent(e))
+  focusH5Field(fieldId)
+}
+
+function onFieldFocus(fieldId, e) {
+  debugLog(`focus:${fieldId}`, summarizeEvent(e))
+}
+
+function onFieldBlur(fieldId, e) {
+  debugLog(`blur:${fieldId}`, summarizeEvent(e))
+}
+
+function onFieldInput(fieldId, e) {
+  debugLog(`input:${fieldId}`, {
+    ...summarizeEvent(e),
+    value: readEventValue(e),
+  })
+}
+
 function onDeviceInput(e) {
   d_no.value = readEventValue(e)
+  debugLog("input:device-field", {
+    ...summarizeEvent(e),
+    value: d_no.value,
+  })
 }
 
-function onStartDateChange(e) {
-  startDate.value = readEventValue(e)
+function onStartDateTimeChange(value) {
+  applyDateTimeValue("start", value)
+  debugLog("change:start-datetime-panel", {
+    value,
+    startDate: startDate.value,
+    startTime: startTime.value,
+  })
 }
 
-function onEndDateChange(e) {
-  endDate.value = readEventValue(e)
+function onEndDateTimeChange(value) {
+  applyDateTimeValue("end", value)
+  debugLog("change:end-datetime-panel", {
+    value,
+    endDate: endDate.value,
+    endTime: endTime.value,
+  })
+}
+
+function buildDateTimeParam(date, time, isEnd) {
+  if (!date) return ""
+  const fallbackTime = isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME
+  return `${date} ${normalizeTimeText(time, fallbackTime)}`
+}
+
+function buildDateTimeText(date, time, isEnd) {
+  if (!date) return ""
+  const fallbackTime = isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME
+  return `${date} ${normalizeTimeText(time, fallbackTime)}`
+}
+
+function normalizeTimeText(time, fallbackTime) {
+  const [fallbackHour = "00", fallbackMinute = "00", fallbackSecond = "00"] =
+    String(fallbackTime || DEFAULT_START_TIME).split(":")
+  const [hourText = fallbackHour, minuteText = fallbackMinute, secondText = fallbackSecond] =
+    String(time || "").split(":")
+
+  const parts = [hourText, minuteText, secondText].map((item, index) => {
+    const fallback = [fallbackHour, fallbackMinute, fallbackSecond][index]
+    const numeric = Number(item)
+    if (Number.isNaN(numeric)) {
+      return String(fallback).padStart(2, "0")
+    }
+    const [min, max] = index === 0 ? [0, 23] : [0, 59]
+    const safeValue = Math.min(Math.max(numeric, min), max)
+    return String(safeValue).padStart(2, "0")
+  })
+
+  return parts.join(":")
+}
+
+function applyDateTimeValue(kind, rawValue) {
+  const normalizedValue = String(rawValue || "").trim()
+  const isEnd = kind === "end"
+
+  if (!normalizedValue) {
+    if (kind === "start") {
+      startDate.value = ""
+      startTime.value = DEFAULT_START_TIME
+    } else {
+      endDate.value = ""
+      endTime.value = DEFAULT_END_TIME
+    }
+    return
+  }
+
+  const [dateText, timeText = isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME] =
+    normalizedValue.replace(" ", "T").split("T")
+  const safeTime = normalizeTimeText(
+    timeText,
+    isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME,
+  )
+
+  if (kind === "start") {
+    startDate.value = dateText
+    startTime.value = safeTime || DEFAULT_START_TIME
+  } else {
+    endDate.value = dateText
+    endTime.value = safeTime || DEFAULT_END_TIME
+  }
+}
+
+function parseDateTime(date, time, isEnd) {
+  if (!date) return null
+  const [year, month, day] = date.split("-").map((item) => Number(item))
+  const [hour, minute, second] = normalizeTimeText(
+    time,
+    isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME,
+  )
+    .split(":")
+    .map((item) => Number(item))
+
+  if (
+    [year, month, day, hour, minute, second].some((item) => Number.isNaN(item))
+  ) {
+    return null
+  }
+
+  return new Date(year, month - 1, day, hour, minute, second)
 }
 
 async function onFilter() {
@@ -425,6 +816,13 @@ async function onFilter() {
     d_no.value = ""
   }
 
+  debugLog("filter:submit", {
+    d_no: d_no.value,
+    startDate: startDate.value,
+    startTime: startTime.value,
+    endDate: endDate.value,
+    endTime: endTime.value,
+  })
   currentPage.value = 1
   await fetchData()
   await fetchChartData()
@@ -433,8 +831,17 @@ async function onFilter() {
 function onReset() {
   d_no.value = ""
   startDate.value = ""
+  startTime.value = DEFAULT_START_TIME
   endDate.value = ""
+  endTime.value = DEFAULT_END_TIME
   currentPage.value = 1
+  debugLog("filter:reset", {
+    d_no: d_no.value,
+    startDate: startDate.value,
+    startTime: startTime.value,
+    endDate: endDate.value,
+    endTime: endTime.value,
+  })
   fetchData()
   fetchChartData()
 }
@@ -444,6 +851,17 @@ function onPageSizeChange(e) {
   pageSize.value = pageSizes[e.detail.value]
   currentPage.value = 1
   fetchData()
+}
+
+function onChartTypeChange(e) {
+  const index = Number(readEventValue(e))
+  chartTypeIndex.value = Number.isNaN(index) ? 0 : index
+  chartSeries.value = normalizeChartSeries(
+    (chartSeries.value || []).map((item) => ({
+      ...item,
+    })),
+    currentChartType.value,
+  )
 }
 
 function prevPage() {
@@ -530,10 +948,14 @@ function navigateTo(url) {
   background-color: #fff;
   border-radius: 20rpx;
   box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
+  position: relative;
+  z-index: 20;
+  isolation: isolate;
 }
 
 .filter-item {
   margin-bottom: 24rpx;
+  position: relative;
 }
 
 .filter-label {
@@ -544,21 +966,56 @@ function navigateTo(url) {
 }
 
 .filter-input,
-.date-picker {
+.datetime-picker {
   width: 100%;
-  padding: 20rpx;
+  min-height: 76rpx;
+  padding: 0 20rpx;
   border: 2rpx solid #e0e0e0;
   border-radius: 12rpx;
   font-size: 30rpx;
   color: #333;
   background-color: #f9f9f9;
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  position: relative;
+  z-index: 22;
+  pointer-events: auto;
 }
 
-.date-input {
-  min-height: 80rpx;
-  line-height: 40rpx;
+.filter-input :deep(.uni-input-wrapper),
+.datetime-picker :deep(.uni-input-wrapper) {
+  width: 100%;
+  min-height: 76rpx;
+  display: flex;
+  align-items: center;
 }
+
+.filter-input :deep(.uni-input-input),
+.filter-input :deep(input),
+.datetime-picker :deep(.uni-input-input),
+.datetime-picker :deep(input) {
+  width: 100%;
+  min-height: 76rpx;
+  height: 76rpx;
+  line-height: 76rpx;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  background: transparent;
+  color: inherit;
+}
+
+.datetime-native-input {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.datetime-native-input :deep(.uni-input-input),
+.datetime-native-input :deep(input) {
+  cursor: pointer;
+}
+
 
 .filter-actions {
   display: flex;
@@ -613,7 +1070,7 @@ function navigateTo(url) {
 .table-scroll-content {
   min-width: 100%;
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .table {
@@ -630,7 +1087,8 @@ function navigateTo(url) {
 }
 
 .table-body {
-  max-height: 800rpx;
+  width: 100%;
+  min-width: max-content;
 }
 
 .table-row {
@@ -748,5 +1206,32 @@ function navigateTo(url) {
   box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
   position: relative;
   z-index: 1;
+}
+
+.chart-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16rpx;
+}
+
+.chart-type-picker {
+  min-width: 180rpx;
+  max-width: 280rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12rpx 20rpx;
+  border: 2rpx solid #e0e0e0;
+  border-radius: 12rpx;
+  background-color: #f9f9f9;
+  color: #333;
+  font-size: 28rpx;
+  box-sizing: border-box;
+}
+
+.chart-type-arrow {
+  margin-left: 12rpx;
+  color: #999;
+  font-size: 20rpx;
 }
 </style>

@@ -201,11 +201,11 @@ watch(
 
   .tool-bar {
     display: flex;
-    justify-content: flex-end;
+    justify-content: center;
     margin-bottom: 16px;
     width: 100%;
     max-width: 100%;
-    padding-right: 4px;
+    padding-right: 0;
     box-sizing: border-box;
 
     .picker-box {
@@ -216,8 +216,8 @@ watch(
       background-color: #fff;
       border: 1px solid #dcdfe6;
       border-radius: 4px;
-      min-width: 96px;
-      max-width: calc(100vw - 72px);
+      min-width: 88px;
+      max-width: 220px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -237,11 +237,10 @@ watch(
 #sensor-charts {
   .tool-bar {
     margin-bottom: 20rpx;
-    padding-right: 0;
 
     .picker-box {
       padding: 16rpx 28rpx;
-      max-width: calc(100vw - 88rpx);
+      max-width: 340rpx;
     }
   }
 
