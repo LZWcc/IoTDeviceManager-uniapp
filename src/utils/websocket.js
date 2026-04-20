@@ -1,3 +1,5 @@
+import { WS_BASE_URL } from "@/config/runtime"
+
 /**
  * uni-app 兼容的 WebSocket 客户端
  * 支持 H5、小程序、App 多平台
@@ -57,7 +59,7 @@ class WebSocketClient {
     this.socketTask.onMessage((res) => {
       try {
         const message = JSON.parse(res.data)
-        const { type, data } = message
+        const { type, data, timestamp } = message
 
         // 处理心跳响应
         if (type === "pong") {
@@ -66,7 +68,11 @@ class WebSocketClient {
 
         if (this.listeners.has(type)) {
           const callbacks = this.listeners.get(type)
-          callbacks.forEach((cb) => cb(data))
+          const payload =
+            data && typeof data === "object"
+              ? { ...data, timestamp }
+              : { data, timestamp }
+          callbacks.forEach((cb) => cb(payload))
         }
       } catch (error) {
         console.error("处理 WebSocket 消息时出错:", error)
@@ -225,8 +231,7 @@ class WebSocketClient {
 }
 
 // 创建全局 WebSocket 客户端实例
-// 注意：需要根据实际后端地址修改
-const wsClient = new WebSocketClient("ws://localhost:8081")
+const wsClient = new WebSocketClient(WS_BASE_URL)
 
 // 自动连接
 wsClient.connect()

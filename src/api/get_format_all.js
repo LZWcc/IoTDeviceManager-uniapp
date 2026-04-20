@@ -1,4 +1,4 @@
-import instance from "../request.js"
+import instance from "./request.js"
 
 export async function getFormatAll() {
   try {

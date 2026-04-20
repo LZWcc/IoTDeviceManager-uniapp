@@ -21,3 +21,9 @@ dist
 *.sw?
 
 Vue3
+
+original-project/
+backend/
+
+.env.*
+*.sql

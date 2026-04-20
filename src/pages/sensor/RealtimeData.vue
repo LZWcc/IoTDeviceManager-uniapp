@@ -47,10 +47,11 @@
 
 <script setup>
 import { ref, onMounted } from "vue"
-import BigSensorCard from "../../components/echarts/BigSensorCard.vue"
-import SensorCharts from "../../components/echarts/SensorCharts.vue"
+import BigSensorCard from "../../components/device/BigSensorCard.vue"
+import SensorCharts from "../../components/charts/SensorCharts.vue"
 import { getDeviceList } from "@/api/get_deviceList"
 import { appStore } from "@/stores/index"
+import { navigateToPage } from "@/utils/navigation"
 
 const selectedDevice = ref("")
 const selectedDeviceIndex = ref(0)
@@ -84,7 +85,7 @@ function onDeviceChange(e) {
 }
 
 function navigateTo(url) {
-  uni.navigateTo({ url })
+  navigateToPage(url)
 }
 </script>
 

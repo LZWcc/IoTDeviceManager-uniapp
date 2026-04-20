@@ -1,34 +1,51 @@
-const BASE_URL = 'http://localhost:8081';
+import { API_BASE_URL } from "@/config/runtime"
+
+export const BASE_URL = API_BASE_URL
+
 const timeout = 20000
 
 const instance = (options) => {
   return new Promise((resolve, reject) => {
-    // 请求拦截器逻辑
-    uni.request({
-      url: BASE_URL + options.url,
-      method: options.method || 'GET',
+    const requestOptions = {
+      url: `${BASE_URL}${options.url}`,
+      method: options.method || "GET",
       data: options.data || options.params || {},
-      timeout: timeout,
-      headers: options.headers || { 'Content-Type': 'application/json' },
+      timeout,
+      header: options.header || options.headers || {
+        "Content-Type": "application/json",
+      },
       success(res) {
-        // 响应拦截器逻辑 - 返回类似axios的response对象
-        resolve({
+        const response = {
           data: res.data,
           status: res.statusCode,
           headers: res.header,
-          config: options
-        })
+          config: options,
+        }
+
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(response)
+          return
+        }
+
+        const error = new Error(res.data?.msg || res.errMsg || "请求失败")
+        error.response = response
+        reject(error)
       },
       fail(err) {
         reject(err)
       },
-    })
+    }
+
+    uni.request(requestOptions)
   })
 }
 
-instance.get = (url, config) => instance({ ...config, url, method: 'GET' })
-instance.post = (url, data, config) => instance({ ...config, url, data, method: 'POST' })
-instance.put = (url, data, config) => instance({ ...config, url, data, method: 'PUT' })
-instance.delete = (url, config) => instance({ ...config, url, method: 'DELETE' })
+instance.get = (url, config) => instance({ ...config, url, method: "GET" })
+instance.post = (url, data, config) =>
+  instance({ ...config, url, data, method: "POST" })
+instance.put = (url, data, config) =>
+  instance({ ...config, url, data, method: "PUT" })
+instance.delete = (url, config) =>
+  instance({ ...config, url, method: "DELETE" })
 
-export default instance;
+export default instance

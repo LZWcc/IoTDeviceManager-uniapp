@@ -1,6 +1,5 @@
 <template>
   <view class="page">
-    <!-- 导航菜单 -->
     <view class="menu-list">
       <view
         class="menu-item"
@@ -17,86 +16,132 @@
       </view>
     </view>
 
-    <!-- 筛选条件 -->
     <view class="filter-wrapper">
-      <view class="filter-item" v-if="appStore.settings.showDeviceFeatures">
+      <view
+        class="filter-item"
+        v-if="appStore.settings.showDeviceFeatures"
+      >
         <text class="filter-label">设备编号</text>
         <input
           class="filter-input"
-          type="text"
-          v-model="d_no"
+          :value="d_no"
           placeholder="请输入设备编号"
           confirm-type="done"
+          @input="onDeviceInput"
+          @confirm="onFilter"
         />
       </view>
 
       <view class="filter-item">
         <text class="filter-label">开始时间</text>
-        <picker mode="date" :value="startDate" @change="onStartDateChange">
-          <view class="date-picker">
-            <text>{{ startDate || "选择日期" }}</text>
-          </view>
-        </picker>
+        <DateTimePickerField
+          field="start"
+          placeholder="请选择开始时间"
+          default-start-time="00:00:00"
+          default-end-time="23:59:59"
+          :start-value="startDateTimeText"
+          :end-value="endDateTimeText"
+          @update:startValue="onStartDateTimeChange"
+          @update:endValue="onEndDateTimeChange"
+        />
       </view>
 
       <view class="filter-item">
         <text class="filter-label">结束时间</text>
-        <picker mode="date" :value="endDate" @change="onEndDateChange">
-          <view class="date-picker">
-            <text>{{ endDate || "选择日期" }}</text>
-          </view>
-        </picker>
+        <DateTimePickerField
+          field="end"
+          placeholder="请选择结束时间"
+          default-start-time="00:00:00"
+          default-end-time="23:59:59"
+          :start-value="startDateTimeText"
+          :end-value="endDateTimeText"
+          @update:startValue="onStartDateTimeChange"
+          @update:endValue="onEndDateTimeChange"
+        />
       </view>
 
       <view class="filter-actions">
         <button class="query-btn" @click="onFilter">查询</button>
         <button class="reset-btn" @click="onReset">重置</button>
       </view>
+
     </view>
 
-    <!-- 数据表格 -->
     <view class="table-wrapper">
       <view class="table-container">
-        <scroll-view scroll-x="true" class="table-scroll">
-          <view class="table">
-            <!-- 表头 -->
-            <view class="table-header">
-              <view
-                class="table-cell header-cell"
-                v-for="(header, index) in filteredTableHeader"
-                :key="index"
-              >
-                <text>{{ header.label }}</text>
+        <!-- #ifdef H5 -->
+        <view class="table-scroll table-scroll-native">
+          <view class="table-scroll-content">
+            <view class="table">
+              <view class="table-header">
+                <view
+                  class="table-cell header-cell"
+                  v-for="(header, index) in filteredTableHeader"
+                  :key="index"
+                >
+                  <text>{{ header.label }}</text>
+                </view>
+              </view>
+
+              <view class="table-body">
+                <view
+                  class="table-row"
+                  v-for="(row, rowIndex) in formattedTableData"
+                  :key="rowIndex"
+                >
+                  <view
+                    class="table-cell"
+                    v-for="(header, colIndex) in filteredTableHeader"
+                    :key="colIndex"
+                  >
+                    <text>{{ row[header.prop] || "-" }}</text>
+                  </view>
+                </view>
               </view>
             </view>
-
-            <!-- 表体 -->
-            <view class="table-body">
-              <view
-                class="table-row"
-                v-for="(row, rowIndex) in formattedTableData"
-                :key="rowIndex"
-              >
+          </view>
+        </view>
+        <!-- #endif -->
+        <!-- #ifndef H5 -->
+        <scroll-view scroll-x="true" class="table-scroll">
+          <view class="table-scroll-content">
+            <view class="table">
+              <view class="table-header">
                 <view
-                  class="table-cell"
-                  v-for="(header, colIndex) in filteredTableHeader"
-                  :key="colIndex"
+                  class="table-cell header-cell"
+                  v-for="(header, index) in filteredTableHeader"
+                  :key="index"
                 >
-                  <text>{{ row[header.prop] || "-" }}</text>
+                  <text>{{ header.label }}</text>
+                </view>
+              </view>
+
+              <view class="table-body">
+                <view
+                  class="table-row"
+                  v-for="(row, rowIndex) in formattedTableData"
+                  :key="rowIndex"
+                >
+                  <view
+                    class="table-cell"
+                    v-for="(header, colIndex) in filteredTableHeader"
+                    :key="colIndex"
+                  >
+                    <text>{{ row[header.prop] || "-" }}</text>
+                  </view>
                 </view>
               </view>
             </view>
           </view>
         </scroll-view>
+        <!-- #endif -->
 
-        <!-- 空数据提示 -->
         <view class="empty-data" v-if="formattedTableData.length === 0">
           <text>暂无数据</text>
         </view>
       </view>
     </view>
 
-    <!-- 分页 -->
     <view class="pagination-wrapper">
       <view class="pagination-controls">
         <text class="total-text">共 {{ total }} 条</text>
@@ -130,55 +175,86 @@
       </view>
     </view>
 
-    <!-- 图表区域 -->
     <view class="chart-wrapper">
-      <!-- #ifdef H5 -->
-      <view class="chart-container" id="historyChartRef"></view>
-      <!-- #endif -->
-
-      <!-- #ifndef H5 -->
-      <view class="chart-placeholder">
-        <text>图表功能仅在 H5 平台支持</text>
+      <view class="chart-toolbar">
+        <picker
+          mode="selector"
+          :range="chartTypes"
+          range-key="label"
+          :value="chartTypeIndex"
+          @change="onChartTypeChange"
+        >
+          <view class="chart-type-picker">
+            <text>{{ chartTypes[chartTypeIndex].label }}</text>
+            <text class="chart-type-arrow">▼</text>
+          </view>
+        </picker>
       </view>
-      <!-- #endif -->
+      <UChartCanvas
+        :type="currentChartType"
+        :categories="chartCategories"
+        :series="chartSeries"
+        :yAxis="chartYAxis"
+        height="640rpx"
+      />
     </view>
   </view>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, onUnmounted, nextTick } from "vue"
-import { getFormatPaged, getFormatChart } from "@/api/get_format_limit"
+import { computed, onMounted, onUnmounted, ref, shallowRef } from "vue"
+import DateTimePickerField from "@/components/DateTimePickerField.vue"
+import UChartCanvas from "@/components/charts/UChartCanvas.vue"
+import { getFormatChart, getFormatPaged } from "@/api/get_format_limit"
 import { appStore } from "@/stores/index"
-import { formatDate } from "@/utils/index"
+import {
+  createValueAxisConfig,
+  downsampleChartData,
+  normalizeChartSeries,
+} from "@/utils/ucharts"
 import wsClient from "@/utils/websocket"
-
-// #ifdef H5
-let echarts = null
-let myChart = null
-let resizeObserver = null
-let resizeTimer = null
-// #endif
+import { navigateToPage } from "@/utils/navigation"
 
 const type = ref("behavior")
-
-// 筛选条件
 const d_no = ref("")
+const DEFAULT_START_TIME = "00:00:00"
+const DEFAULT_END_TIME = "23:59:59"
 const startDate = ref("")
+const startTime = ref(DEFAULT_START_TIME)
 const endDate = ref("")
-
-// 表格数据
+const endTime = ref(DEFAULT_END_TIME)
 const tableData = ref([])
 const tableHeader = ref([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const pageSizes = [5, 10, 20, 50, 100]
-const pageSizeIndex = ref(1) // 默认 10
+const pageSizeIndex = ref(1)
+const chartTypeIndex = ref(0)
+const chartTypes = [
+  { label: "折线图", value: "line" },
+  { label: "柱状图", value: "bar" },
+]
+const chartCategories = shallowRef([])
+const chartSeries = shallowRef([])
+const chartYAxis = shallowRef({ disabled: false, splitNumber: 5 })
+let wsRefreshTimer = null
+let chartRequestId = 0
+let lastChartFetchAt = 0
+let isChartFetching = false
+let hasPendingChartRefresh = false
+const CHART_REFRESH_INTERVAL = 10000
+const MAX_CHART_POINTS_MOBILE = 120
+const MAX_CHART_POINTS_DESKTOP = 200
 
-// 计算属性
-const totalPages = computed(() => {
-  return Math.ceil(total.value / pageSize.value) || 1
-})
+const totalPages = computed(() => Math.ceil(total.value / pageSize.value) || 1)
+const currentChartType = computed(() => chartTypes[chartTypeIndex.value].value)
+const startDateTimeText = computed(() =>
+  buildDateTimeText(startDate.value, startTime.value, false),
+)
+const endDateTimeText = computed(() =>
+  buildDateTimeText(endDate.value, endTime.value, true),
+)
 
 const formattedTableData = computed(() => {
   return tableData.value.map((row) => {
@@ -198,9 +274,7 @@ const filteredTableHeader = computed(() => {
   return tableHeader.value.filter((col) => col.prop !== "设备编号")
 })
 
-// WebSocket 实时数据更新处理
 const handleWsData = (data) => {
-  // 如果设备编号不匹配，忽略
   if (
     appStore.value.settings.showDeviceFeatures &&
     data.d_no &&
@@ -209,31 +283,18 @@ const handleWsData = (data) => {
     return
   }
 
-  console.log("HistoryData received WS data:", data)
+  if (!data.timestamp) return
 
-  // 更新图表数据（如果在当前日期范围内）
-  if (myChart && data.timestamp) {
-    const dataTime = new Date(data.timestamp)
-    const start = startDate.value ? new Date(startDate.value) : null
-    const end = endDate.value ? new Date(endDate.value) : null
+  const dataTime = new Date(data.timestamp)
+  const start = parseDateTime(startDate.value, startTime.value, false)
+  const end = parseDateTime(endDate.value, endTime.value, true)
 
-    if ((!start || dataTime >= start) && (!end || dataTime <= end)) {
-      // 重新获取图表数据
-      fetchChartData()
-    }
+  if ((!start || dataTime >= start) && (!end || dataTime <= end)) {
+    scheduleChartRefresh()
   }
 }
 
 onMounted(async () => {
-  // #ifdef H5
-  try {
-    const echartsModule = await import("echarts")
-    echarts = echartsModule
-  } catch (error) {
-    console.error("ECharts 加载失败:", error)
-  }
-  // #endif
-
   try {
     await fetchData()
     await fetchChartData()
@@ -245,59 +306,20 @@ onMounted(async () => {
     })
   }
 
-  // WebSocket 监听
-  const topic = "behavior_update"
-  wsClient.on(topic, handleWsData)
+  wsClient.on("behavior_update", handleWsData)
   wsClient.send({
     type: "subscribe",
-    topics: [topic],
+    topics: ["behavior_update"],
   })
-
-  // #ifdef H5
-  window.addEventListener("resize", handleResize)
-  // #endif
 })
 
 onUnmounted(() => {
-  // 清理 WebSocket 监听
-  const topic = "behavior_update"
-  wsClient.off(topic, handleWsData)
-
-  // #ifdef H5
-  window.removeEventListener("resize", handleResize)
-  if (resizeObserver) {
-    resizeObserver.disconnect()
-    resizeObserver = null
+  wsClient.off("behavior_update", handleWsData)
+  if (wsRefreshTimer) {
+    clearTimeout(wsRefreshTimer)
+    wsRefreshTimer = null
   }
-  if (resizeTimer) {
-    clearTimeout(resizeTimer)
-    resizeTimer = null
-  }
-  if (myChart) {
-    myChart.dispose()
-    myChart = null
-  }
-  // #endif
 })
-
-function handleResize() {
-  // #ifdef H5
-  if (resizeTimer) {
-    clearTimeout(resizeTimer)
-  }
-  resizeTimer = setTimeout(() => {
-    if (myChart) {
-      const chartDom = document.getElementById("historyChartRef")
-      if (chartDom) {
-        myChart.resize({
-          width: chartDom.offsetWidth || window.innerWidth,
-          height: chartDom.offsetHeight || 400,
-        })
-      }
-    }
-  }, 100)
-  // #endif
-}
 
 async function fetchData() {
   try {
@@ -305,21 +327,22 @@ async function fetchData() {
       currentPage.value,
       pageSize.value,
       d_no.value,
-      startDate.value ? `${startDate.value} 00:00:00` : "",
-      endDate.value ? `${endDate.value} 23:59:59` : "",
+      buildDateTimeParam(startDate.value, startTime.value, false),
+      buildDateTimeParam(endDate.value, endTime.value, true),
       type.value,
     )
     const response = res.data.data
     total.value = res.data.total
 
     if (response.length > 0) {
-      tableHeader.value = response[0].map((field) => {
-        return {
-          prop: field.f_name,
-          label: field.unit ? `${field.f_name}(${field.unit})` : field.f_name,
-        }
-      })
+      tableHeader.value = response[0].map((field) => ({
+        prop: field.f_name,
+        label: field.unit ? `${field.f_name}(${field.unit})` : field.f_name,
+      }))
+    } else {
+      tableHeader.value = []
     }
+
     tableData.value = response
   } catch (error) {
     console.error("获取数据失败:", error)
@@ -331,118 +354,187 @@ async function fetchData() {
 }
 
 async function fetchChartData() {
-  // #ifdef H5
+  if (isChartFetching) {
+    hasPendingChartRefresh = true
+    return
+  }
+
+  isChartFetching = true
+  const requestId = ++chartRequestId
+  lastChartFetchAt = Date.now()
   try {
     const res = await getFormatChart(
       d_no.value,
-      startDate.value ? `${startDate.value} 00:00:00` : "",
-      endDate.value ? `${endDate.value} 23:59:59` : "",
+      buildDateTimeParam(startDate.value, startTime.value, false),
+      buildDateTimeParam(endDate.value, endTime.value, true),
       type.value,
     )
     const { times, series } = res.data.data
 
-    if (!times || times.length === 0) {
-      uni.showToast({
-        title: "没有可用的图表数据",
-        icon: "none",
-      })
-      if (myChart) myChart.clear()
+    if (requestId !== chartRequestId) {
       return
     }
 
-    console.log("chart data:", times, series)
-    await nextTick()
-    renderChart(times, series)
+    if (!times?.length) {
+      chartCategories.value = []
+      chartSeries.value = []
+      chartYAxis.value = { disabled: false, splitNumber: 5 }
+      return
+    }
+
+    const screenWidth = uni.getSystemInfoSync().windowWidth || 375
+    const maxPoints =
+      screenWidth >= 1024 ? MAX_CHART_POINTS_DESKTOP : MAX_CHART_POINTS_MOBILE
+    const sampled = downsampleChartData(times, series, maxPoints)
+    const normalizedSeries = normalizeChartSeries(
+      sampled.series.map((item) => ({
+        ...item,
+        unit: item.unit || "",
+      })),
+      currentChartType.value,
+    )
+
+    chartCategories.value = sampled.times
+    chartSeries.value = normalizedSeries
+    chartYAxis.value = createValueAxisConfig(normalizedSeries, {
+      forceZeroMin: true,
+    })
   } catch (error) {
     console.error("获取图表数据失败:", error)
     uni.showToast({
       title: "获取图表数据失败",
       icon: "none",
     })
-  }
-  // #endif
-}
-
-function renderChart(times, series) {
-  // #ifdef H5
-  if (!echarts) return
-
-  const chartDom = document.getElementById("historyChartRef")
-  if (!chartDom) return
-
-  if (!myChart) {
-    myChart = echarts.init(chartDom)
-
-    // 使用 ResizeObserver 监听容器尺寸变化
-    if (typeof ResizeObserver !== "undefined" && !resizeObserver) {
-      resizeObserver = new ResizeObserver(() => {
-        handleResize()
-      })
-      resizeObserver.observe(chartDom)
+  } finally {
+    isChartFetching = false
+    if (hasPendingChartRefresh) {
+      hasPendingChartRefresh = false
+      scheduleChartRefresh()
     }
   }
+}
 
-  const option = {
-    tooltip: {
-      trigger: "axis",
-      formatter: (params) => {
-        let tooltipText = params[0].axisValue + "<br/>"
-        params.forEach((item) => {
-          const unit = series[item.seriesIndex].unit || ""
-          tooltipText += `${item.marker} ${item.seriesName}: ${item.data} ${unit}<br/>`
-        })
-        return tooltipText
-      },
-    },
-    legend: {
-      data: series.map((s) => s.name),
-      top: "5%",
-    },
-    grid: {
-      left: "10%",
-      right: "10%",
-      bottom: "10%",
-      top: "15%",
-      containLabel: true,
-    },
-    xAxis: {
-      type: "category",
-      data: times,
-      axisLabel: {
-        rotate: 30,
-      },
-    },
-    yAxis: {
-      type: "value",
-      min: 0,
-      max: 100,
-      interval: 10,
-    },
-    series: series.map((s) => ({
-      name: s.name,
-      type: "line",
-      data: s.data,
-      smooth: true,
-    })),
+function scheduleChartRefresh() {
+  const elapsed = Date.now() - lastChartFetchAt
+  const delay = Math.max(500, CHART_REFRESH_INTERVAL - elapsed)
+
+  if (wsRefreshTimer) {
+    clearTimeout(wsRefreshTimer)
   }
 
-  myChart.setOption(option)
-  // #endif
+  wsRefreshTimer = setTimeout(() => {
+    if (isChartFetching) {
+      hasPendingChartRefresh = true
+      return
+    }
+    fetchChartData()
+  }, delay)
 }
 
-function onStartDateChange(e) {
-  startDate.value = e.detail.value
+function readEventValue(e) {
+  if (e?.detail?.value !== undefined) return e.detail.value
+  if (e?.target?.value !== undefined) return e.target.value
+  return ""
 }
 
-function onEndDateChange(e) {
-  endDate.value = e.detail.value
+function onDeviceInput(e) {
+  d_no.value = readEventValue(e)
+}
+
+function onStartDateTimeChange(value) {
+  applyDateTimeValue("start", value)
+}
+
+function onEndDateTimeChange(value) {
+  applyDateTimeValue("end", value)
+}
+
+function buildDateTimeParam(date, time, isEnd) {
+  if (!date) return ""
+  const fallbackTime = isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME
+  return `${date} ${normalizeTimeText(time, fallbackTime)}`
+}
+
+function buildDateTimeText(date, time, isEnd) {
+  if (!date) return ""
+  const fallbackTime = isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME
+  return `${date} ${normalizeTimeText(time, fallbackTime)}`
+}
+
+function normalizeTimeText(time, fallbackTime) {
+  const [fallbackHour = "00", fallbackMinute = "00", fallbackSecond = "00"] =
+    String(fallbackTime || DEFAULT_START_TIME).split(":")
+  const [hourText = fallbackHour, minuteText = fallbackMinute, secondText = fallbackSecond] =
+    String(time || "").split(":")
+
+  const parts = [hourText, minuteText, secondText].map((item, index) => {
+    const fallback = [fallbackHour, fallbackMinute, fallbackSecond][index]
+    const numeric = Number(item)
+    if (Number.isNaN(numeric)) {
+      return String(fallback).padStart(2, "0")
+    }
+    const [min, max] = index === 0 ? [0, 23] : [0, 59]
+    const safeValue = Math.min(Math.max(numeric, min), max)
+    return String(safeValue).padStart(2, "0")
+  })
+
+  return parts.join(":")
+}
+
+function applyDateTimeValue(kind, rawValue) {
+  const normalizedValue = String(rawValue || "").trim()
+  const isEnd = kind === "end"
+
+  if (!normalizedValue) {
+    if (kind === "start") {
+      startDate.value = ""
+      startTime.value = DEFAULT_START_TIME
+    } else {
+      endDate.value = ""
+      endTime.value = DEFAULT_END_TIME
+    }
+    return
+  }
+
+  const [dateText, timeText = isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME] =
+    normalizedValue.replace(" ", "T").split("T")
+  const safeTime = normalizeTimeText(
+    timeText,
+    isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME,
+  )
+
+  if (kind === "start") {
+    startDate.value = dateText
+    startTime.value = safeTime || DEFAULT_START_TIME
+  } else {
+    endDate.value = dateText
+    endTime.value = safeTime || DEFAULT_END_TIME
+  }
+}
+
+function parseDateTime(date, time, isEnd) {
+  if (!date) return null
+  const [year, month, day] = date.split("-").map((item) => Number(item))
+  const [hour, minute, second] = normalizeTimeText(
+    time,
+    isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME,
+  )
+    .split(":")
+    .map((item) => Number(item))
+
+  if (
+    [year, month, day, hour, minute, second].some((item) => Number.isNaN(item))
+  ) {
+    return null
+  }
+
+  return new Date(year, month - 1, day, hour, minute, second)
 }
 
 async function onFilter() {
   if (!appStore.value.settings.showDeviceFeatures) {
     d_no.value = ""
   }
-
   currentPage.value = 1
   await fetchData()
   await fetchChartData()
@@ -451,7 +543,9 @@ async function onFilter() {
 function onReset() {
   d_no.value = ""
   startDate.value = ""
+  startTime.value = DEFAULT_START_TIME
   endDate.value = ""
+  endTime.value = DEFAULT_END_TIME
   currentPage.value = 1
   fetchData()
   fetchChartData()
@@ -462,6 +556,17 @@ function onPageSizeChange(e) {
   pageSize.value = pageSizes[e.detail.value]
   currentPage.value = 1
   fetchData()
+}
+
+function onChartTypeChange(e) {
+  const index = Number(readEventValue(e))
+  chartTypeIndex.value = Number.isNaN(index) ? 0 : index
+  chartSeries.value = normalizeChartSeries(
+    (chartSeries.value || []).map((item) => ({
+      ...item,
+    })),
+    currentChartType.value,
+  )
 }
 
 function prevPage() {
@@ -479,7 +584,7 @@ function nextPage() {
 }
 
 function navigateTo(url) {
-  uni.navigateBack()
+  navigateToPage(url)
 }
 </script>
 
@@ -488,6 +593,7 @@ function navigateTo(url) {
   min-height: 100vh;
   background-color: #f5f5f5;
   padding-bottom: 40rpx;
+  position: relative;
 }
 
 .menu-list {
@@ -541,17 +647,20 @@ function navigateTo(url) {
   border-radius: 20rpx;
 }
 
-/* 筛选条件 */
 .filter-wrapper {
   margin: 20rpx;
   padding: 30rpx;
   background-color: #fff;
   border-radius: 20rpx;
   box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
+  position: relative;
+  z-index: 20;
+  isolation: isolate;
 }
 
 .filter-item {
   margin-bottom: 24rpx;
+  position: relative;
 }
 
 .filter-label {
@@ -561,27 +670,57 @@ function navigateTo(url) {
   margin-bottom: 12rpx;
 }
 
-.filter-input {
+.filter-input,
+.datetime-picker {
   width: 100%;
-  height: 80rpx;
-  line-height: 80rpx;
+  min-height: 76rpx;
   padding: 0 20rpx;
-  background-color: #f9f9f9;
   border: 2rpx solid #e0e0e0;
   border-radius: 12rpx;
-  font-size: 28rpx;
+  font-size: 30rpx;
   color: #333;
+  background-color: #f9f9f9;
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  position: relative;
+  z-index: 22;
+  pointer-events: auto;
 }
 
-.date-picker {
-  padding: 20rpx;
-  background-color: #f9f9f9;
-  border: 2rpx solid #e0e0e0;
-  border-radius: 12rpx;
-  font-size: 28rpx;
-  color: #333;
+.filter-input :deep(.uni-input-wrapper),
+.datetime-picker :deep(.uni-input-wrapper) {
+  width: 100%;
+  min-height: 76rpx;
+  display: flex;
+  align-items: center;
 }
+
+.filter-input :deep(.uni-input-input),
+.filter-input :deep(input),
+.datetime-picker :deep(.uni-input-input),
+.datetime-picker :deep(input) {
+  width: 100%;
+  min-height: 76rpx;
+  height: 76rpx;
+  line-height: 76rpx;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  background: transparent;
+  color: inherit;
+}
+
+.datetime-native-input {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.datetime-native-input :deep(.uni-input-input),
+.datetime-native-input :deep(input) {
+  cursor: pointer;
+}
+
 
 .filter-actions {
   display: flex;
@@ -592,9 +731,10 @@ function navigateTo(url) {
 .query-btn,
 .reset-btn {
   flex: 1;
-  padding: 24rpx;
+  height: 80rpx;
+  line-height: 80rpx;
   border-radius: 12rpx;
-  font-size: 28rpx;
+  font-size: 30rpx;
   border: none;
 }
 
@@ -608,18 +748,17 @@ function navigateTo(url) {
   color: #666;
 }
 
-/* 表格样式 */
 .table-wrapper {
   margin: 20rpx;
-  background-color: #fff;
-  border-radius: 12rpx;
-  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.08);
-  overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .table-container {
-  width: 100%;
-  position: relative;
+  background-color: #fff;
+  border-radius: 20rpx;
+  overflow: hidden;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
 }
 
 .table-scroll {
@@ -627,48 +766,61 @@ function navigateTo(url) {
   white-space: nowrap;
 }
 
+.table-scroll-native {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-scroll-content {
+  min-width: 100%;
+  display: flex;
+  justify-content: flex-start;
+}
+
 .table {
   width: 100%;
-  display: table;
-  border-collapse: collapse;
+  min-width: max-content;
 }
 
 .table-header {
   display: flex;
-  background-color: #f5f7fa;
-  border-bottom: 2rpx solid #e0e0e0;
-}
-
-.header-cell {
-  font-weight: 600;
-  color: #333;
-  background: transparent;
+  background-color: #f7f9fc;
+  border-bottom: 2rpx solid #ebeef5;
+  width: 100%;
+  min-width: max-content;
 }
 
 .table-body {
   width: 100%;
+  min-width: max-content;
 }
 
 .table-row {
   display: flex;
   border-bottom: 1rpx solid #f0f0f0;
-}
-
-.table-row:last-child {
-  border-bottom: none;
+  width: 100%;
+  min-width: max-content;
 }
 
 .table-cell {
-  flex: 1;
-  min-width: 120rpx;
+  flex: 1 0 180rpx;
+  min-width: 180rpx;
   padding: 24rpx 16rpx;
-  font-size: 26rpx;
+  box-sizing: border-box;
+  font-size: 24rpx;
   color: #666;
   text-align: center;
   display: flex;
   align-items: center;
   justify-content: center;
   word-break: break-all;
+}
+
+.header-cell {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #333;
 }
 
 .empty-data {
@@ -678,13 +830,14 @@ function navigateTo(url) {
   font-size: 28rpx;
 }
 
-/* 分页 */
 .pagination-wrapper {
   margin: 20rpx;
   padding: 24rpx 30rpx;
   background-color: #fff;
   border-radius: 12rpx;
   box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.08);
+  position: relative;
+  z-index: 1;
 }
 
 .pagination-controls {
@@ -750,36 +903,40 @@ function navigateTo(url) {
   flex-shrink: 0;
 }
 
-/* 图表区域 */
 .chart-wrapper {
   margin: 20rpx;
   padding: 30rpx;
   background-color: #fff;
   border-radius: 20rpx;
   box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  position: relative;
+  z-index: 1;
 }
 
-.chart-container {
-  width: 100%;
-  max-width: 1200px;
-  height: 400px;
-  margin: 0 auto;
+.chart-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16rpx;
 }
 
-.chart-placeholder {
-  width: 100%;
-  max-width: 1200px;
-  height: 400px;
+.chart-type-picker {
+  min-width: 180rpx;
+  max-width: 280rpx;
   display: flex;
   align-items: center;
-  justify-content: center;
-  background-color: #f5f5f5;
+  justify-content: space-between;
+  padding: 12rpx 20rpx;
+  border: 2rpx solid #e0e0e0;
   border-radius: 12rpx;
-  color: #999;
+  background-color: #f9f9f9;
+  color: #333;
   font-size: 28rpx;
-  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.chart-type-arrow {
+  margin-left: 12rpx;
+  color: #999;
+  font-size: 20rpx;
 }
 </style>

@@ -49,6 +49,8 @@
 </template>
 
 <script>
+import { navigateToPage } from "@/utils/navigation"
+
 export default {
   data() {
     return {
@@ -61,7 +63,7 @@ export default {
     },
     navigateTo(url) {
       this.showMenu = false
-      uni.switchTab({ url })
+      navigateToPage(url)
     },
   },
 }
