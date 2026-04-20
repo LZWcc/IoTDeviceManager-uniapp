@@ -23,7 +23,9 @@ dist
 Vue3
 
 original-project/
-backend/
+# backend/
+backend/.env
+backend/src/history/*.bak
 
 .env.*
 *.sql
