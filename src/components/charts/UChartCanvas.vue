@@ -130,7 +130,18 @@ let tooltipMoveTimer = null
 let tooltipMoveLastAt = 0
 let pendingTooltipEvent = null
 
+const isRadialType = computed(() => {
+  return props.type === "pie" || props.type === "ring"
+})
+
 const hasData = computed(() => {
+  // pie / ring charts don't use `categories` — they only need a series with
+  // `{name, data}` entries. All other chart types still require both axes.
+  if (isRadialType.value) {
+    return (props.series || []).some(
+      (item) => Number.isFinite(Number(item?.data)) && Number(item?.data) > 0,
+    )
+  }
   return props.categories.length > 0 && props.series.length > 0
 })
 
@@ -345,17 +356,21 @@ async function renderChart() {
   zeroRectRetryCount = 0
 
   const isCompact = rect.width <= 420
+  const radial = isRadialType.value
   // Data-point density vs label density are treated as SEPARATE problems:
   //   - data points: every sample is still drawn (high density, smooth lines)
   //   - labels: explicitly thinned below by xAxis.labelCount / formatter
   // The width math keeps the tight packing from the previous iteration; only
   // the label layer has changed.
+  // Pie/ring charts don't scroll horizontally — canvas matches the viewport.
   const pointCount = props.categories.length
   const minPointWidth = isCompact ? 22 : 36
   const horizontalPadding = isCompact ? 24 : 20
   const estimatedWidth = pointCount * minPointWidth + horizontalPadding
   const maxCanvasWidth = rect.width * (isCompact ? 2 : 3)
-  const resolvedWidth = Math.max(rect.width, Math.min(estimatedWidth, maxCanvasWidth))
+  const resolvedWidth = radial
+    ? rect.width
+    : Math.max(rect.width, Math.min(estimatedWidth, maxCanvasWidth))
 
   // Label-density control: we want roughly one label per `labelPitch` px of
   // canvas. `labelCount` then feeds uCharts' built-in tick thinning:
@@ -368,12 +383,12 @@ async function renderChart() {
   const maxLabels = isCompact ? 6 : 10
   const targetLabels = Math.max(
     minLabels,
-    Math.min(pointCount, Math.round(resolvedWidth / labelPitch), maxLabels),
+    Math.min(Math.max(pointCount, 1), Math.round(resolvedWidth / labelPitch), maxLabels),
   )
-  const xLabelCount = Math.max(minLabels, Math.min(pointCount, targetLabels))
+  const xLabelCount = Math.max(minLabels, Math.min(Math.max(pointCount, 1), targetLabels))
   const xLabelRatio = Math.max(
     1,
-    Math.ceil(pointCount / Math.max(1, xLabelCount - 1)),
+    Math.ceil(Math.max(pointCount, 1) / Math.max(1, xLabelCount - 1)),
   )
   canvasWidth.value = resolvedWidth
   const chartType = props.type === "bar" ? "column" : props.type
@@ -383,66 +398,115 @@ async function renderChart() {
     props.categories || [],
     props.series || [],
   )
-  const chartOptions = {
-    type: chartType,
-    width: resolvedWidth,
-    height: chartHeight,
-    pixelRatio,
-    animation: false,
-    background: "#FFFFFF",
-    categories: props.categories,
-    series: props.series,
-    enableScroll: false,
-    dataLabel: false,
-    legend: {
-      show: true,
-      position: "top",
-      float: "center",
-      padding: isCompact ? 2 : 4,
-      margin: isCompact ? 4 : 8,
-      fontSize: isCompact ? 8 : 10,
-      lineHeight: isCompact ? 10 : 12,
-      itemGap: isCompact ? 8 : 12,
-    },
-    padding: isCompact ? [8, 10, 32, 8] : [14, 12, 12, 8],
-    xAxis: {
-      disableGrid: false,
-      rotateLabel: false,
-      rotateAngle: 0,
-      fontSize: isCompact ? 8 : 10,
-      lineHeight: isCompact ? 18 : 16,
-      marginTop: isCompact ? 8 : 4,
-      // Explicit label-density control: thin to `xLabelCount` ticks and align
-      // grid lines with them. Data points themselves are NOT reduced.
-      labelCount: xLabelCount,
-      gridEval: xLabelRatio,
-      formatter: props.xAxis.formatter || formatCompactXAxis,
-      scrollShow: false,
-      ...props.xAxis,
-    },
-    yAxis: {
-      disabled: false,
-      splitNumber: 5,
-      fontSize: isCompact ? 7 : 9,
-      padding: isCompact ? 2 : 6,
-      ...props.yAxis,
-    },
-    extra: {
-      tooltip: {
-        legendShape: "auto",
-        // Prepend the current sample's full timestamp as a header row in the
-        // tooltip. uCharts reads `opts.categories[index]` directly (see
-        // drawToolTipText in u-charts.js), so whatever raw timestamp the page
-        // feeds into `chartCategories` is what shows up.
-        showCategory: true,
-      },
-      column: {
-        width: isCompact ? 14 : 18,
-        categoryGap: isCompact ? 2 : 4,
-      },
-      ...props.extra,
-    },
-  }
+  const chartOptions = radial
+    ? {
+        type: chartType,
+        width: resolvedWidth,
+        height: chartHeight,
+        pixelRatio,
+        animation: false,
+        background: "#FFFFFF",
+        series: props.series,
+        enableScroll: false,
+        dataLabel: true,
+        legend: {
+          show: true,
+          position: "bottom",
+          float: "center",
+          padding: isCompact ? 4 : 6,
+          margin: isCompact ? 6 : 10,
+          fontSize: isCompact ? 10 : 12,
+          lineHeight: isCompact ? 14 : 16,
+          itemGap: isCompact ? 12 : 16,
+        },
+        padding: isCompact ? [10, 10, 10, 10] : [14, 12, 14, 12],
+        extra: {
+          tooltip: {
+            legendShape: "auto",
+          },
+          pie: {
+            activeOpacity: 0.5,
+            activeRadius: 6,
+            offsetAngle: 0,
+            labelWidth: 12,
+            border: true,
+            borderWidth: 2,
+            borderColor: "#FFFFFF",
+          },
+          ring: {
+            ringWidth: isCompact ? 28 : 36,
+            activeOpacity: 0.5,
+            activeRadius: 6,
+            offsetAngle: 0,
+            labelWidth: 12,
+            border: true,
+            borderWidth: 2,
+            borderColor: "#FFFFFF",
+            centerColor: "#FFFFFF",
+          },
+          ...props.extra,
+        },
+      }
+    : {
+        type: chartType,
+        width: resolvedWidth,
+        height: chartHeight,
+        pixelRatio,
+        animation: false,
+        background: "#FFFFFF",
+        categories: props.categories,
+        series: props.series,
+        enableScroll: false,
+        dataLabel: false,
+        legend: {
+          show: true,
+          position: "top",
+          float: "center",
+          padding: isCompact ? 2 : 4,
+          margin: isCompact ? 4 : 8,
+          fontSize: isCompact ? 8 : 10,
+          lineHeight: isCompact ? 10 : 12,
+          itemGap: isCompact ? 8 : 12,
+        },
+        padding: isCompact ? [8, 10, 32, 8] : [14, 12, 12, 8],
+        xAxis: {
+          disableGrid: false,
+          rotateLabel: false,
+          rotateAngle: 0,
+          fontSize: isCompact ? 8 : 10,
+          lineHeight: isCompact ? 18 : 16,
+          marginTop: isCompact ? 8 : 4,
+          // Explicit label-density control: thin to `xLabelCount` ticks and align
+          // grid lines with them. Data points themselves are NOT reduced.
+          labelCount: xLabelCount,
+          gridEval: xLabelRatio,
+          formatter: props.xAxis.formatter || formatCompactXAxis,
+          scrollShow: false,
+          ...props.xAxis,
+        },
+        yAxis: {
+          disabled: false,
+          splitNumber: 5,
+          fontSize: isCompact ? 7 : 9,
+          padding: isCompact ? 2 : 6,
+          ...props.yAxis,
+        },
+        extra: {
+          tooltip: {
+            legendShape: "auto",
+            // Prepend the current sample's full timestamp as a header row in the
+            // tooltip. uCharts reads `opts.categories[index]` directly (see
+            // drawToolTipText in u-charts.js), so whatever raw timestamp the page
+            // feeds into `chartCategories` is what shows up.
+            showCategory: true,
+          },
+          column: {
+            width: isCompact ? 14 : 18,
+            categoryGap: isCompact ? 2 : 4,
+          },
+          ...props.extra,
+        },
+      }
 
   const shouldRecreate =
     !chart ||
