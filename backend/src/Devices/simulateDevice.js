@@ -48,6 +48,12 @@ function startDeviceSimulator(deviceId) {
     // console.log(`设备 ${deviceId} 收到消息 - 主题: ${topic}, 消息: ${msgStr}`)
     const data = JSON.parse(msgStr)
     const receivedDeviceId = data.d_no
+
+    if (topic === 'device/direct' && data.topic === 'sync_time') {
+      console.log(`[SYNC_TIME] 设备 ${deviceId} 收到全局同步时间: ${data.value}`)
+      return
+    }
+
     if ((receivedDeviceId === deviceId || deviceId === 'GLOBAL') && topic !== `device/heartbeat/ack`) {
       console.log(`设备 ${deviceId} 收到消息 - 主题: ${topic}, 来自设备: ${receivedDeviceId}, 消息: ${msgStr}`, '51')
     }

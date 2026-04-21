@@ -11,8 +11,40 @@ const tableMap = {
   behavior: { data: 't_behavior_data', mapper: 't_behavior_field_mapper' },
 }
 
+// 补零，保证时间字段为两位字符串。
+function padTimeUnit(value) {
+  return String(value).padStart(2, '0')
+}
+
+// 格式化服务端当前时间，供设备同步时间指令使用。
+export function formatServerTime(date = new Date()) {
+  const year = date.getFullYear()
+  const month = padTimeUnit(date.getMonth() + 1)
+  const day = padTimeUnit(date.getDate())
+  const hour = padTimeUnit(date.getHours())
+  const minute = padTimeUnit(date.getMinutes())
+  const second = padTimeUnit(date.getSeconds())
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+}
+
+// 构造全局同步时间指令的标准消息体。
+export function buildGlobalSyncTimeCommand(date = new Date()) {
+  return {
+    d_no: 'GLOBAL',
+    t_name: '同步时间',
+    topic: 'sync_time',
+    value: formatServerTime(date),
+    timestamp: date.getTime(),
+  }
+}
+
 class MQTTService {
   constructor() {
+    this.disabled = process.env.MQTT_DISABLED === '1'
+    if (this.disabled) {
+      this.client = null
+      return
+    }
     this.client = mqtt.connect(`${MQTT_CONFIG.host}:${MQTT_CONFIG.port}`, {
       clientId: MQTT_CONFIG.clientId,
     })
@@ -45,6 +77,7 @@ class MQTTService {
   }
 
   subscribe(topic) {
+    if (this.disabled || !this.client) return
     this.client.subscribe(topic, (err) => {
       if (err) {
         console.log(`订阅主题 ${topic} 失败:`, err)
@@ -55,12 +88,18 @@ class MQTTService {
   }
 
   publish(topic, message) {
-    this.client.publish(topic, message, (err) => {
-      if (err) {
-        console.log(`发布消息到主题 ${topic} 失败:`, err)
-      } else {
-        // console.log(`已发布消息到主题: ${topic}`)
-      }
+    if (this.disabled || !this.client) {
+      return Promise.resolve()
+    }
+    return new Promise((resolve, reject) => {
+      this.client.publish(topic, message, (err) => {
+        if (err) {
+          console.log(`发布消息到主题 ${topic} 失败:`, err)
+          reject(err)
+        } else {
+          resolve()
+        }
+      })
     })
   }
 
@@ -175,12 +214,23 @@ class MQTTService {
     return Date.now() - lastActive < 5000 // 5秒内有心跳则视为在线
   }
 
+  async sendGlobalCommand(command) {
+    const message =
+      typeof command === 'string' ? command : JSON.stringify(command)
+    await this.publish('device/direct', message)
+    console.log('✅ 全局指令已发布到 device/direct')
+  }
+
   // 发送指令到设备(在线则直接发送，离线则入队列)
   async sendCommandToDevice(deviceId, topic, message) {
+    if (deviceId === 'GLOBAL' || topic === 'device/direct') {
+      await this.sendGlobalCommand(message)
+      return
+    }
     if (this.isDeviceOnline(deviceId)) {
-      this.publish(topic, message)
+      await this.publish(topic, message)
       await this.delay(200)
-      this.publish(topic, message)
+      await this.publish(topic, message)
       console.log(`✅ 指令已发送到在线设备 ${deviceId}`)
     } else {
       console.log(` 设备${deviceId} 离线，指令已入队列`)
@@ -194,6 +244,12 @@ class MQTTService {
     }
   }
 
+  async syncGlobalTime(date = new Date()) {
+    const command = buildGlobalSyncTimeCommand(date)
+    await this.sendGlobalCommand(command)
+    return command
+  }
+
   // 处理心跳数据
   async handleHeartbeat(deviceId) {
     deviceHeartbeats.set(deviceId, Date.now())
@@ -201,7 +257,7 @@ class MQTTService {
     const ackTopic = `device/${deviceId}/heartbeat/ack`
     // const ackTopic = `device/heartbeat/ack`
     const ackMessage = JSON.stringify({ d_no: deviceId, msg: 'pong', timestamp: Date.now() })
-    this.publish(ackTopic, ackMessage)
+    await this.publish(ackTopic, ackMessage)
 
     // 检查并发送所有缓存指令
     if (offlineCommandQueues.has(deviceId)) {
@@ -209,9 +265,9 @@ class MQTTService {
       if (queue.length > 0) {
         console.log(`设备 ${deviceId} 已上线，发送缓存指令，共 ${queue.length} 条`)
         for (const { topic, message } of queue) {
-          this.publish(topic, message)
+          await this.publish(topic, message)
           await this.delay(200)
-          this.publish(topic, message)
+          await this.publish(topic, message)
           await this.delay(200)
         }
         // queue.forEach(({ topic, message }) => {

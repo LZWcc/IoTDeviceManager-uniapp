@@ -1,6 +1,6 @@
 import express from 'express'
 import db from '../db.js'
-import mqttService from '../mqtt/client.js'
+import mqttService, { buildGlobalSyncTimeCommand } from '../mqtt/client.js'
 
 const router = express.Router()
 
@@ -54,10 +54,10 @@ router.get('/get-direct-config', async (req, res) => {
     })
 
     // 建立 id -> item 映射表
-    const map = {}
-    formatted.forEach((item) => {
-      map[item.id] = { ...item, children: [] }
-    })
+    // const map = {}
+    // formatted.forEach((item) => {
+    //   map[item.id] = { ...item, children: [] }
+    // })
 
     // 构建树状结构
     const tree = buildTree(formatted)
@@ -117,7 +117,7 @@ router.post('/save-config', async (req, res) => {
           }
           const pubTopic = d_no === 'GLOBAL' ? 'device/direct' : `device/${d_no}/direct`
           messagesToSend.push({
-            // topic: `device/${d_no}/direct`,
+            d_no,
             topic: pubTopic,
             message: JSON.stringify(msg),
           })
@@ -126,8 +126,12 @@ router.post('/save-config', async (req, res) => {
       await connection.commit()
       connection.release()
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-      for (const { topic, message } of messagesToSend) {
-        mqttService.sendCommandToDevice(d_no, topic, message)
+      for (const { d_no: targetDeviceNo, topic, message } of messagesToSend) {
+        if (targetDeviceNo === 'GLOBAL') {
+          await mqttService.sendGlobalCommand(message)
+        } else {
+          await mqttService.sendCommandToDevice(targetDeviceNo, topic, message)
+        }
         await delay(50)
       }
       // messagesToSend.forEach(({ topic, message }) => {
@@ -150,6 +154,25 @@ router.post('/save-config', async (req, res) => {
     res.status(500).json({
       code: 1,
       message: '保存失败',
+      error: error.message,
+    })
+  }
+})
+
+router.post('/sync-global-time', async (_req, res) => {
+  try {
+    const command = buildGlobalSyncTimeCommand()
+    await mqttService.sendGlobalCommand(command)
+    res.json({
+      code: 0,
+      message: '全局时间同步指令已下发',
+      data: command,
+    })
+  } catch (error) {
+    console.error('全局同步时间失败:', error)
+    res.status(500).json({
+      code: 1,
+      message: '全局同步时间失败',
       error: error.message,
     })
   }

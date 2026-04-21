@@ -4,19 +4,30 @@
     <view class="config-card">
       <view class="card-header">
         <text class="card-title">⚙️ 全局配置</text>
-        <view class="mode-toggle" @click="globalIsAuto = !globalIsAuto">
-          <text class="mode-label" :class="{ 'mode-active': !globalIsAuto }"
-            >手动</text
+        <view class="header-actions">
+          <view
+            class="sync-time-button"
+            :class="{ 'sync-time-button-disabled': isSyncingGlobalTime }"
+            @click.stop="handleSyncGlobalTime"
           >
-          <view class="toggle-track" :class="{ 'toggle-on': globalIsAuto }">
-            <view
-              class="toggle-thumb"
-              :class="{ 'thumb-on': globalIsAuto }"
-            ></view>
+            <text>{{
+              isSyncingGlobalTime ? "同步中..." : "全局同步时间"
+            }}</text>
           </view>
-          <text class="mode-label" :class="{ 'mode-active': globalIsAuto }"
-            >自动</text
-          >
+          <view class="mode-toggle" @click="globalIsAuto = !globalIsAuto">
+            <text class="mode-label" :class="{ 'mode-active': !globalIsAuto }"
+              >手动</text
+            >
+            <view class="toggle-track" :class="{ 'toggle-on': globalIsAuto }">
+              <view
+                class="toggle-thumb"
+                :class="{ 'thumb-on': globalIsAuto }"
+              ></view>
+            </view>
+            <text class="mode-label" :class="{ 'mode-active': globalIsAuto }"
+              >自动</text
+            >
+          </view>
         </view>
       </view>
 
@@ -103,6 +114,7 @@ import {
   getDirectConfig,
   saveDirectConfig,
   getDeviceList,
+  syncGlobalTime,
 } from "@/api/get_direct_config"
 import ConfigNode from "@/components/ConfigNode.vue"
 import { appStore } from "@/stores/index"
@@ -139,6 +151,7 @@ export default {
       selectedDeviceIndex: 0,
       isGlobalSaving: false,
       isDeviceSaving: false,
+      isSyncingGlobalTime: false,
     }
   },
 
@@ -337,6 +350,30 @@ export default {
       }
     },
 
+    async handleSyncGlobalTime() {
+      if (this.isSyncingGlobalTime) return
+      this.isSyncingGlobalTime = true
+      try {
+        const response = await syncGlobalTime()
+        uni.showToast({
+          title: response?.message || "全局时间同步指令已下发",
+          icon: "success",
+          duration: 2000,
+        })
+      } catch (error) {
+        console.error("全局同步时间失败:", error)
+        const message =
+          error?.response?.data?.message || error?.message || "全局同步时间失败"
+        uni.showToast({
+          title: message,
+          icon: "none",
+          duration: 2500,
+        })
+      } finally {
+        this.isSyncingGlobalTime = false
+      }
+    },
+
     // 切换设备
     async handleDeviceChange(e) {
       const index = e.detail.value
@@ -387,6 +424,12 @@ export default {
   color: #303133;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
 .card-body {
   padding: 24rpx;
 }
@@ -396,6 +439,29 @@ export default {
   display: flex;
   align-items: center;
   gap: 12rpx;
+}
+
+.sync-time-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 172rpx;
+  height: 56rpx;
+  padding: 0 24rpx;
+  border-radius: 28rpx;
+  background: linear-gradient(135deg, #2979ff, #4d9bff);
+  box-shadow: 0 6rpx 16rpx rgba(41, 121, 255, 0.18);
+}
+
+.sync-time-button text {
+  font-size: 24rpx;
+  color: #fff;
+  font-weight: 600;
+}
+
+.sync-time-button-disabled {
+  opacity: 0.72;
+  pointer-events: none;
 }
 
 .mode-label {

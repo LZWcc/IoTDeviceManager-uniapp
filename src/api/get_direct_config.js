@@ -35,3 +35,13 @@ export async function getDeviceList() {
     throw error
   }
 }
+
+export async function syncGlobalTime() {
+  try {
+    const response = await instance.post("/api/sync-global-time")
+    return response.data
+  } catch (error) {
+    console.error("全局同步时间失败:", error)
+    throw error
+  }
+}
