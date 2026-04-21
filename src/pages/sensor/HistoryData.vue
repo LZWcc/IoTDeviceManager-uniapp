@@ -174,6 +174,21 @@
 
     <view class="chart-wrapper">
       <view class="chart-toolbar">
+        <view class="chart-mode-control">
+          <text class="chart-mode-label">图表模式</text>
+          <picker
+            mode="selector"
+            :range="chartModeOptions"
+            range-key="label"
+            :value="chartModeIndex"
+            @change="onChartModeChange"
+          >
+            <view class="chart-select-picker chart-mode-picker">
+              <text>{{ chartModeOptions[chartModeIndex].label }}</text>
+              <text class="chart-type-arrow">▼</text>
+            </view>
+          </picker>
+        </view>
         <picker
           mode="selector"
           :range="chartTypes"
@@ -181,7 +196,7 @@
           :value="chartTypeIndex"
           @change="onChartTypeChange"
         >
-          <view class="chart-type-picker">
+          <view class="chart-select-picker chart-type-picker">
             <text>{{ chartTypes[chartTypeIndex].label }}</text>
             <text class="chart-type-arrow">▼</text>
           </view>
@@ -192,6 +207,8 @@
         :categories="chartCategories"
         :series="chartSeries"
         :yAxis="chartYAxis"
+        :animation="true"
+        :animation-duration="420"
         height="640rpx"
       />
     </view>
@@ -205,9 +222,11 @@ import UChartCanvas from "@/components/charts/UChartCanvas.vue"
 import { getFormatChart, getFormatPaged } from "@/api/get_format_limit"
 import { appStore } from "@/stores/index"
 import {
+  alignChartDataToCategories,
   createValueAxisConfig,
   downsampleChartData,
   normalizeChartSeries,
+  toChartNumber,
 } from "@/utils/ucharts"
 import wsClient from "@/utils/websocket"
 import { navigateToPage } from "@/utils/navigation"
@@ -227,6 +246,11 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const pageSizes = [5, 10, 20, 50, 100]
 const pageSizeIndex = ref(1)
+const chartDataMode = ref("range")
+const chartModeOptions = [
+  { label: "趋势总览", value: "range" },
+  { label: "当前页明细", value: "page" },
+]
 const chartTypeIndex = ref(0)
 const chartTypes = [
   { label: "折线图", value: "line" },
@@ -236,15 +260,29 @@ const chartCategories = shallowRef([])
 const chartSeries = shallowRef([])
 const chartYAxis = shallowRef({ disabled: false, splitNumber: 5 })
 let wsRefreshTimer = null
+let wsHistoryRefreshTimer = null
 let chartRequestId = 0
 let lastChartFetchAt = 0
 let isChartFetching = false
 let hasPendingChartRefresh = false
 const CHART_REFRESH_INTERVAL = 10000
+const HISTORY_REFRESH_DEBOUNCE = 400
 const MAX_CHART_POINTS_MOBILE = 120
 const MAX_CHART_POINTS_DESKTOP = 200
+const CHART_AXIS_MAX = 100
+const PAGE_CHART_EXCLUDED_FIELDS = new Set([
+  "设备编号",
+  "是否在线数据",
+  "更新时间",
+])
 
 const totalPages = computed(() => Math.ceil(total.value / pageSize.value) || 1)
+const chartModeIndex = computed(() => {
+  const index = chartModeOptions.findIndex(
+    (item) => item.value === chartDataMode.value,
+  )
+  return index >= 0 ? index : 0
+})
 const currentChartType = computed(() => chartTypes[chartTypeIndex.value].value)
 const startDateTimeText = computed(() =>
   buildDateTimeText(startDate.value, startTime.value, false),
@@ -274,6 +312,7 @@ const filteredTableHeader = computed(() => {
 const handleWsData = (data) => {
   if (
     appStore.value.settings.showDeviceFeatures &&
+    d_no.value &&
     data.d_no &&
     data.d_no !== d_no.value
   ) {
@@ -287,14 +326,16 @@ const handleWsData = (data) => {
   const end = parseDateTime(endDate.value, endTime.value, true)
 
   if ((!start || dataTime >= start) && (!end || dataTime <= end)) {
-    scheduleChartRefresh()
+    scheduleHistoryRefresh()
   }
 }
 
 onMounted(async () => {
   try {
     await fetchData()
-    await fetchChartData()
+    if (chartDataMode.value === "range") {
+      await fetchChartData()
+    }
   } catch (error) {
     console.error("初始化失败:", error)
     uni.showToast({
@@ -316,6 +357,10 @@ onUnmounted(() => {
     clearTimeout(wsRefreshTimer)
     wsRefreshTimer = null
   }
+  if (wsHistoryRefreshTimer) {
+    clearTimeout(wsHistoryRefreshTimer)
+    wsHistoryRefreshTimer = null
+  }
 })
 
 async function fetchData() {
@@ -328,7 +373,7 @@ async function fetchData() {
       buildDateTimeParam(endDate.value, endTime.value, true),
       type.value,
     )
-    const response = res.data.data
+    const response = Array.isArray(res.data.data) ? res.data.data : []
     total.value = res.data.total
 
     if (response.length > 0) {
@@ -341,6 +386,9 @@ async function fetchData() {
     }
 
     tableData.value = response
+    if (chartDataMode.value === "page") {
+      updateChartFromCurrentPage()
+    }
   } catch (error) {
     console.error("获取数据失败:", error)
     uni.showToast({
@@ -351,6 +399,9 @@ async function fetchData() {
 }
 
 async function fetchChartData() {
+  if (chartDataMode.value !== "range") {
+    return
+  }
   if (isChartFetching) {
     hasPendingChartRefresh = true
     return
@@ -371,6 +422,9 @@ async function fetchChartData() {
     if (requestId !== chartRequestId) {
       return
     }
+    if (chartDataMode.value !== "range") {
+      return
+    }
 
     if (!times?.length) {
       chartCategories.value = []
@@ -382,7 +436,8 @@ async function fetchChartData() {
     const screenWidth = uni.getSystemInfoSync().windowWidth || 375
     const maxPoints =
       screenWidth >= 1024 ? MAX_CHART_POINTS_DESKTOP : MAX_CHART_POINTS_MOBILE
-    const sampled = downsampleChartData(times, series, maxPoints)
+    const aligned = alignChartDataToCategories(times, series)
+    const sampled = downsampleChartData(aligned.times, aligned.series, maxPoints)
     const normalizedSeries = normalizeChartSeries(
       sampled.series.map((item) => ({
         ...item,
@@ -395,7 +450,9 @@ async function fetchChartData() {
     chartSeries.value = normalizedSeries
     chartYAxis.value = createValueAxisConfig(normalizedSeries, {
       forceZeroMin: true,
+      fixedMax: CHART_AXIS_MAX,
     })
+    appendLatestTablePointToRangeChart()
   } catch (error) {
     console.error("获取图表数据失败:", error)
     uni.showToast({
@@ -412,6 +469,9 @@ async function fetchChartData() {
 }
 
 function scheduleChartRefresh() {
+  if (chartDataMode.value !== "range") {
+    return
+  }
   const elapsed = Date.now() - lastChartFetchAt
   const delay = Math.max(500, CHART_REFRESH_INTERVAL - elapsed)
 
@@ -426,6 +486,28 @@ function scheduleChartRefresh() {
     }
     fetchChartData()
   }, delay)
+}
+
+function scheduleHistoryRefresh() {
+  if (wsHistoryRefreshTimer) {
+    clearTimeout(wsHistoryRefreshTimer)
+  }
+
+  wsHistoryRefreshTimer = setTimeout(async () => {
+    wsHistoryRefreshTimer = null
+    await fetchData()
+    if (chartDataMode.value === "range") {
+      await fetchChartData()
+    }
+  }, HISTORY_REFRESH_DEBOUNCE)
+}
+
+function clearScheduledChartRefresh() {
+  if (wsRefreshTimer) {
+    clearTimeout(wsRefreshTimer)
+    wsRefreshTimer = null
+  }
+  hasPendingChartRefresh = false
 }
 
 function readEventValue(e) {
@@ -534,18 +616,22 @@ async function onFilter() {
   }
   currentPage.value = 1
   await fetchData()
-  await fetchChartData()
+  if (chartDataMode.value === "range") {
+    await fetchChartData()
+  }
 }
 
-function onReset() {
+async function onReset() {
   d_no.value = ""
   startDate.value = ""
   startTime.value = DEFAULT_START_TIME
   endDate.value = ""
   endTime.value = DEFAULT_END_TIME
   currentPage.value = 1
-  fetchData()
-  fetchChartData()
+  await fetchData()
+  if (chartDataMode.value === "range") {
+    await fetchChartData()
+  }
 }
 
 function onPageSizeChange(e) {
@@ -564,6 +650,111 @@ function onChartTypeChange(e) {
     })),
     currentChartType.value,
   )
+}
+
+function onChartModeChange(e) {
+  const index = Number(readEventValue(e))
+  const nextMode = chartModeOptions[index]?.value || "range"
+  chartDataMode.value = nextMode
+
+  if (nextMode === "page") {
+    updateChartFromCurrentPage()
+    return
+  }
+
+  clearScheduledChartRefresh()
+  lastChartFetchAt = 0
+  fetchChartData()
+}
+
+function updateChartFromCurrentPage() {
+  clearScheduledChartRefresh()
+  chartRequestId += 1
+
+  const { categories, series } = buildChartDataFromTableData(tableData.value)
+  const normalizedSeries = normalizeChartSeries(series, currentChartType.value)
+
+  chartCategories.value = categories
+  chartSeries.value = normalizedSeries
+  chartYAxis.value = createValueAxisConfig(normalizedSeries, {
+    forceZeroMin: true,
+    fixedMax: CHART_AXIS_MAX,
+  })
+}
+
+function buildChartDataFromTableData(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { categories: [], series: [] }
+  }
+
+  const orderedRows = [...rows].reverse()
+  const categories = orderedRows.map((row, index) => {
+    const timeField = findFieldByName(row, "更新时间")
+    const value = timeField?.value
+    return value === null || value === undefined || value === ""
+      ? String(index + 1)
+      : String(value)
+  })
+  const metricNames = []
+  const metricUnits = new Map()
+
+  orderedRows.forEach((row) => {
+    if (!Array.isArray(row)) return
+    row.forEach((field) => {
+      if (!field?.f_name || PAGE_CHART_EXCLUDED_FIELDS.has(field.f_name)) return
+      if (metricNames.includes(field.f_name)) return
+      if (toChartNumber(field.value) === null) return
+
+      metricNames.push(field.f_name)
+      metricUnits.set(field.f_name, field.unit || "")
+    })
+  })
+
+  const series = metricNames.map((name) => ({
+    name,
+    unit: metricUnits.get(name) || "",
+    data: orderedRows.map((row) => {
+      const field = findFieldByName(row, name)
+      return toChartNumber(field?.value)
+    }),
+  }))
+
+  return { categories, series }
+}
+
+function findFieldByName(row, name) {
+  if (!Array.isArray(row)) return null
+  return row.find((field) => field?.f_name === name) || null
+}
+
+function appendLatestTablePointToRangeChart() {
+  const latestRow = tableData.value[0]
+  if (!Array.isArray(latestRow) || chartDataMode.value !== "range") return
+
+  const timeText = getChartMinuteText(findFieldByName(latestRow, "更新时间")?.value)
+  if (!timeText || chartCategories.value.includes(timeText)) return
+
+  const nextSeries = (chartSeries.value || []).map((item) => {
+    const field = findFieldByName(latestRow, item.name)
+    return {
+      ...item,
+      data: [...(item.data || []), toChartNumber(field?.value)],
+    }
+  })
+
+  chartCategories.value = [...(chartCategories.value || []), timeText]
+  chartSeries.value = nextSeries
+  chartYAxis.value = createValueAxisConfig(nextSeries, {
+    forceZeroMin: true,
+    fixedMax: CHART_AXIS_MAX,
+  })
+}
+
+function getChartMinuteText(value) {
+  if (!value) return ""
+  const text = String(value).replace("T", " ")
+  const match = text.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/)
+  return match ? match[1] : text
 }
 
 function prevPage() {
@@ -912,11 +1103,26 @@ function navigateTo(url) {
 
 .chart-toolbar {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 16rpx;
+  flex-wrap: wrap;
   margin-bottom: 16rpx;
 }
 
-.chart-type-picker {
+.chart-mode-control {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.chart-mode-label {
+  font-size: 26rpx;
+  color: #666;
+  white-space: nowrap;
+}
+
+.chart-select-picker {
   min-width: 180rpx;
   max-width: 280rpx;
   display: flex;

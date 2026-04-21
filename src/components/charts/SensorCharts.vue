@@ -53,6 +53,7 @@ const chartTypes = [
   { label: "折线图", value: "line" },
   { label: "柱状图", value: "bar" },
 ]
+const CHART_AXIS_MAX = 100
 
 const tableMap = {
   sensor: "Sensor",
@@ -110,7 +111,10 @@ const chartSeries = computed(() => {
 })
 
 const chartYAxis = computed(() => {
-  return createValueAxisConfig(chartSeries.value, { forceZeroMin: true })
+  return createValueAxisConfig(chartSeries.value, {
+    forceZeroMin: true,
+    fixedMax: CHART_AXIS_MAX,
+  })
 })
 
 async function fetchDeviceData(d_no) {
