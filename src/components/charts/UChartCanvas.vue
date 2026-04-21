@@ -103,6 +103,22 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  animation: {
+    type: Boolean,
+    default: false,
+  },
+  updateAnimation: {
+    type: Boolean,
+    default: false,
+  },
+  animationDuration: {
+    type: Number,
+    default: 420,
+  },
+  stabilizeAppendWidth: {
+    type: Boolean,
+    default: true,
+  },
 })
 
 const instance = getCurrentInstance()
@@ -115,6 +131,8 @@ let resizeTimer = null
 let resizeObserver = null
 let lastChartWidth = 0
 let lastChartHeight = 0
+let lastViewportWidth = 0
+let lastPointCount = 0
 let lastDataSignature = ""
 let renderSeq = 0
 let zeroRectRetryCount = 0
@@ -146,7 +164,18 @@ const hasData = computed(() => {
 })
 
 watch(
-  () => [props.type, props.categories, props.series, props.yAxis, props.xAxis, props.extra],
+  () => [
+    props.type,
+    props.categories,
+    props.series,
+    props.yAxis,
+    props.xAxis,
+    props.extra,
+    props.animation,
+    props.updateAnimation,
+    props.animationDuration,
+    props.stabilizeAppendWidth,
+  ],
   () => {
     scheduleRender()
   },
@@ -231,7 +260,19 @@ function scheduleRender(delay = 80) {
   }, delay)
 }
 
-function buildDataSignature(type, categories, series) {
+function cloneChartOption(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneChartOption(item))
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, cloneChartOption(item)]),
+    )
+  }
+  return value
+}
+
+function buildDataSignature(type, categories, series, yAxis, xAxis, extra) {
   const tailCategory = categories[categories.length - 1] ?? ""
   const seriesTail = (series || [])
     .map((item) => {
@@ -239,7 +280,34 @@ function buildDataSignature(type, categories, series) {
       return `${item?.name || ""}:${data.length}:${data[data.length - 1] ?? ""}`
     })
     .join("|")
-  return `${type}|${categories.length}|${tailCategory}|${seriesTail}`
+  const axisSignature = JSON.stringify({
+    yAxis,
+    xAxis,
+    extra,
+  })
+  return `${type}|${categories.length}|${tailCategory}|${seriesTail}|${axisSignature}`
+}
+
+function getAnimationDuration() {
+  const duration = Number(props.animationDuration)
+  return Number.isFinite(duration) && duration > 0 ? duration : 420
+}
+
+function resolveCanvasWidth({ targetWidth, viewportWidth, radial, pointCount, pointStep }) {
+  if (radial || !props.stabilizeAppendWidth || !lastChartWidth || !lastPointCount) {
+    return targetWidth
+  }
+
+  if (lastViewportWidth && Math.abs(viewportWidth - lastViewportWidth) > 1) {
+    return targetWidth
+  }
+
+  const pointGrowth = pointCount - lastPointCount
+  const widthGrowth = targetWidth - lastChartWidth
+  const smallAppendGrowth = pointGrowth > 0 && pointGrowth <= 2
+  const smallWidthGrowth = widthGrowth > 0 && widthGrowth <= pointStep * 2 + 2
+
+  return smallAppendGrowth && smallWidthGrowth ? lastChartWidth : targetWidth
 }
 
 async function getCanvasRect() {
@@ -336,6 +404,8 @@ async function renderChart() {
     canvasWidth.value = 0
     lastChartWidth = 0
     lastChartHeight = 0
+    lastViewportWidth = 0
+    lastPointCount = 0
     lastDataSignature = ""
     lastChartOptions = null
     zeroRectRetryCount = 0
@@ -368,9 +438,16 @@ async function renderChart() {
   const horizontalPadding = isCompact ? 24 : 20
   const estimatedWidth = pointCount * minPointWidth + horizontalPadding
   const maxCanvasWidth = rect.width * (isCompact ? 2 : 3)
-  const resolvedWidth = radial
+  const targetWidth = radial
     ? rect.width
     : Math.max(rect.width, Math.min(estimatedWidth, maxCanvasWidth))
+  const resolvedWidth = resolveCanvasWidth({
+    targetWidth,
+    viewportWidth: rect.width,
+    radial,
+    pointCount,
+    pointStep: minPointWidth,
+  })
 
   // Label-density control: we want roughly one label per `labelPitch` px of
   // canvas. `labelCount` then feeds uCharts' built-in tick thinning:
@@ -393,10 +470,18 @@ async function renderChart() {
   canvasWidth.value = resolvedWidth
   const chartType = props.type === "bar" ? "column" : props.type
   const chartHeight = rect.height
+  const chartCategories = cloneChartOption(props.categories || [])
+  const chartSeries = cloneChartOption(props.series || [])
+  const chartYAxis = cloneChartOption(props.yAxis || {})
+  const chartXAxis = cloneChartOption(props.xAxis || {})
+  const chartExtra = cloneChartOption(props.extra || {})
   const dataSignature = buildDataSignature(
     chartType,
-    props.categories || [],
-    props.series || [],
+    chartCategories,
+    chartSeries,
+    chartYAxis,
+    chartXAxis,
+    chartExtra,
   )
   const chartOptions = radial
     ? {
@@ -405,8 +490,9 @@ async function renderChart() {
         height: chartHeight,
         pixelRatio,
         animation: false,
+        duration: getAnimationDuration(),
         background: "#FFFFFF",
-        series: props.series,
+        series: chartSeries,
         enableScroll: false,
         dataLabel: true,
         legend: {
@@ -444,7 +530,7 @@ async function renderChart() {
             borderColor: "#FFFFFF",
             centerColor: "#FFFFFF",
           },
-          ...props.extra,
+          ...chartExtra,
         },
       }
     : {
@@ -453,9 +539,10 @@ async function renderChart() {
         height: chartHeight,
         pixelRatio,
         animation: false,
+        duration: getAnimationDuration(),
         background: "#FFFFFF",
-        categories: props.categories,
-        series: props.series,
+        categories: chartCategories,
+        series: chartSeries,
         enableScroll: false,
         dataLabel: false,
         legend: {
@@ -480,16 +567,16 @@ async function renderChart() {
           // grid lines with them. Data points themselves are NOT reduced.
           labelCount: xLabelCount,
           gridEval: xLabelRatio,
-          formatter: props.xAxis.formatter || formatCompactXAxis,
+          formatter: chartXAxis.formatter || formatCompactXAxis,
           scrollShow: false,
-          ...props.xAxis,
+          ...chartXAxis,
         },
         yAxis: {
           disabled: false,
           splitNumber: 5,
           fontSize: isCompact ? 7 : 9,
           padding: isCompact ? 2 : 6,
-          ...props.yAxis,
+          ...chartYAxis,
         },
         extra: {
           tooltip: {
@@ -504,17 +591,25 @@ async function renderChart() {
             width: isCompact ? 14 : 18,
             categoryGap: isCompact ? 2 : 4,
           },
-          ...props.extra,
+          ...chartExtra,
         },
       }
 
+  const isInitialCreate = !chart
   const shouldRecreate =
-    !chart ||
+    isInitialCreate ||
     lastChartWidth !== resolvedWidth ||
     lastChartHeight !== chartHeight ||
     currentSeq !== renderSeq
+  const renderOptions = {
+    ...chartOptions,
+    animation:
+      props.animation && (isInitialCreate || (!shouldRecreate && props.updateAnimation)),
+  }
 
   if (!shouldRecreate && dataSignature === lastDataSignature) {
+    lastViewportWidth = rect.width
+    lastPointCount = pointCount
     resetScrollPosition()
     return
   }
@@ -527,23 +622,28 @@ async function renderChart() {
     }
     patchTextBaseline(context)
     chart = new uCharts({
-      ...chartOptions,
+      ...renderOptions,
       context,
     })
     lastChartWidth = resolvedWidth
     lastChartHeight = chartHeight
     resetScrollPosition()
   } else {
-    chart.updateData(chartOptions)
+    chart.updateData(renderOptions)
   }
 
-  lastChartOptions = chartOptions
+  lastViewportWidth = rect.width
+  lastPointCount = pointCount
+  lastChartOptions = renderOptions
   lastDataSignature = dataSignature
 }
 
 function hideTooltip() {
   if (!chart || !lastChartOptions) return
-  chart.updateData(lastChartOptions)
+  chart.updateData({
+    ...lastChartOptions,
+    animation: false,
+  })
 }
 
 function resetScrollPosition() {
