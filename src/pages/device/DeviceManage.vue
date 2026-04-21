@@ -349,7 +349,7 @@ export default {
   display: flex;
   flex-direction: row;
   justify-content: space-between;
-  margin: 20rpx 20rpx 0;
+  margin: 20rpx 20rpx;
   background-color: #f5f5f5;
   flex-shrink: 0;
 }
@@ -400,20 +400,24 @@ export default {
 /* 筛选栏 */
 .filter-bar {
   flex-shrink: 0;
-  padding: 20rpx 24rpx;
+  margin: 0 20rpx 20rpx;
+  padding: 24rpx;
   background-color: #fff;
-  border-bottom: 1rpx solid #ebeef5;
+  border-radius: 20rpx;
+  box-shadow: 0 8rpx 24rpx rgba(15, 23, 42, 0.06);
 }
 
 .filter-input {
   width: 100%;
-  height: 72rpx;
-  padding: 0 24rpx;
-  background-color: #f5f5f5;
-  border-radius: 8rpx;
+  min-height: 76rpx;
+  padding: 0 20rpx;
+  background-color: #f8fafc;
+  border: 1rpx solid #e2e8f0;
+  border-radius: 12rpx;
   font-size: 28rpx;
   margin-bottom: 16rpx;
   box-sizing: border-box;
+  color: #0f172a;
 }
 
 .filter-buttons {
