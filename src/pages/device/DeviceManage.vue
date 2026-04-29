@@ -175,20 +175,24 @@ export default {
   },
 
   methods: {
-    // 获取设备数据
+    // 后端会按当前数据库字段返回设备对象，表头必须跟随后端字段动态生成，不能在前端写死。
+    buildDeviceHeaders(rows) {
+      if (!rows.length) return []
+      return Object.keys(rows[0])
+        .filter((key) => key !== "id")
+        .map((key) => ({
+          prop: key,
+          label: this.keyMap[key] || key,
+        }))
+    },
+
+    // 获取设备数据：只负责请求和落状态，表头转换交给 buildDeviceHeaders，避免请求流程里混入展示规则。
     async fetchDeviceData() {
       this.loading = true
       try {
         const response = await getDevice(this.filter)
         this.tableData = response
-        if (this.tableData.length > 0) {
-          this.tableHeader = Object.keys(this.tableData[0])
-            .filter((key) => key !== "id")
-            .map((key) => ({
-              prop: key,
-              label: this.keyMap[key] || key,
-            }))
-        }
+        this.tableHeader = this.buildDeviceHeaders(response)
       } catch (error) {
         console.error("获取设备数据失败:", error)
         uni.showToast({ title: "获取数据失败", icon: "none" })
@@ -198,121 +202,130 @@ export default {
       }
     },
 
-    // 下拉刷新
     async onRefresh() {
       this.isRefreshing = true
       await this.fetchDeviceData()
     },
 
-    // 查询
     async onFilter() {
       await this.fetchDeviceData()
     },
 
-    // 重置
     async onReset() {
       this.filter = ""
       await this.fetchDeviceData()
     },
 
-    // 新增设备
+    // 新增和编辑共用抽屉打开逻辑，避免后续只改一边造成表单状态不一致。
+    openDrawer(mode, row = {}) {
+      this.currentDevice = mode === "edit" ? { ...row } : {}
+      this.isEdit = mode === "edit"
+      this.errors = {}
+      this.drawer = true
+    },
+
+    closeDrawer() {
+      this.drawer = false
+      this.errors = {}
+    },
+
     onAdd() {
-      this.currentDevice = {}
-      this.isEdit = false
-      this.errors = {}
-      this.drawer = true
+      this.openDrawer("add")
     },
 
-    // 编辑设备
     onEdit(row) {
-      this.currentDevice = { ...row }
-      this.isEdit = true
-      this.errors = {}
-      this.drawer = true
+      this.openDrawer("edit", row)
     },
 
-    // 删除设备
     onDelete(row) {
       uni.showModal({
         title: "删除确认",
         content: `确定要删除设备 "${row.device_name}" 吗？`,
         confirmColor: "#e6a23c",
         success: async (res) => {
-          if (res.confirm) {
-            try {
-              await deleteDevice(row.id)
-              uni.showToast({ title: "删除成功", icon: "success" })
-              await this.fetchDeviceData()
-            } catch (error) {
-              console.error("删除失败:", error)
-              uni.showToast({ title: "删除失败", icon: "none" })
-            }
-          }
+          if (!res.confirm) return
+          await this.deleteDeviceAndRefresh(row.id)
         },
       })
     },
 
-    // 表单验证
-    validateForm() {
-      this.errors = {}
-      let isValid = true
-
-      // 验证设备名称
-      const deviceName = this.currentDevice.device_name?.trim()
-      if (!deviceName) {
-        this.errors.device_name = "请输入设备名称"
-        isValid = false
-      } else if (deviceName.length < 2 || deviceName.length > 50) {
-        this.errors.device_name = "长度在 2 到 50 个字符"
-        isValid = false
+    async deleteDeviceAndRefresh(id) {
+      try {
+        await deleteDevice(id)
+        uni.showToast({ title: "删除成功", icon: "success" })
+        await this.fetchDeviceData()
+      } catch (error) {
+        console.error("删除失败:", error)
+        uni.showToast({ title: "删除失败", icon: "none" })
       }
-
-      // 验证设备编号（仅在功能开启时）
-      if (this.showDeviceFeatures) {
-        const number = this.currentDevice.number?.trim()
-        if (!number) {
-          this.errors.number = "请输入设备编号"
-          isValid = false
-        } else if (!/^[A-Za-z0-9_-]+$/.test(number)) {
-          this.errors.number = "设备编号只能包含字母、数字、下划线和连字符"
-          isValid = false
-        } else if (number.length < 3 || number.length > 20) {
-          this.errors.number = "长度在 3 到 20 个字符"
-          isValid = false
-        }
-      }
-
-      // 验证备注
-      const remarks = this.currentDevice.remarks?.trim()
-      if (remarks && remarks.length > 200) {
-        this.errors.remarks = "备注不能超过 200 个字符"
-        isValid = false
-      }
-
-      return isValid
     },
 
-    // 提交表单
-    async onSubmit() {
-      if (!this.validateForm()) {
-        return
+    validateDeviceName() {
+      const deviceName = this.currentDevice.device_name?.trim()
+      if (!deviceName) return "请输入设备名称"
+      if (deviceName.length < 2 || deviceName.length > 50) {
+        return "长度在 2 到 50 个字符"
       }
+      return ""
+    },
 
-      const submitData = {
+    // 设备编号是可选功能：关闭 showDeviceFeatures 时，不展示也不校验编号字段。
+    validateDeviceNumber() {
+      if (!this.showDeviceFeatures) return ""
+      const number = this.currentDevice.number?.trim()
+      if (!number) return "请输入设备编号"
+      if (!/^[A-Za-z0-9_-]+$/.test(number)) {
+        return "设备编号只能包含字母、数字、下划线和连字符"
+      }
+      if (number.length < 3 || number.length > 20) {
+        return "长度在 3 到 20 个字符"
+      }
+      return ""
+    },
+
+    validateRemarks() {
+      const remarks = this.currentDevice.remarks?.trim()
+      if (remarks && remarks.length > 200) return "备注不能超过 200 个字符"
+      return ""
+    },
+
+    validateForm() {
+      const errors = {
+        device_name: this.validateDeviceName(),
+        number: this.validateDeviceNumber(),
+        remarks: this.validateRemarks(),
+      }
+      this.errors = Object.fromEntries(
+        Object.entries(errors).filter(([, message]) => message),
+      )
+      return Object.keys(this.errors).length === 0
+    },
+
+    buildSubmitData() {
+      return {
         device_name: this.currentDevice.device_name.trim(),
         remarks: this.currentDevice.remarks?.trim() || "",
         number: this.currentDevice.number?.trim() || "",
       }
+    },
+
+    // 新增和编辑只有 API 与提示文案不同，成功后的关闭抽屉和刷新列表保持同一条路径。
+    async submitDevice(submitData) {
+      if (this.isEdit) {
+        await editDevice(this.currentDevice.id, submitData)
+        uni.showToast({ title: "编辑成功", icon: "success" })
+        return
+      }
+      await addDevice(submitData)
+      uni.showToast({ title: "新增成功", icon: "success" })
+    },
+
+    async onSubmit() {
+      if (!this.validateForm()) return
 
       try {
-        if (this.isEdit) {
-          await editDevice(this.currentDevice.id, submitData)
-          uni.showToast({ title: "编辑成功", icon: "success" })
-        } else {
-          await addDevice(submitData)
-          uni.showToast({ title: "新增成功", icon: "success" })
-        }
-        this.drawer = false
+        await this.submitDevice(this.buildSubmitData())
+        this.closeDrawer()
         await this.fetchDeviceData()
       } catch (error) {
         console.error("提交失败:", error)
@@ -321,10 +334,8 @@ export default {
       }
     },
 
-    // 取消
     onCancel() {
-      this.drawer = false
-      this.errors = {}
+      this.closeDrawer()
     },
 
     // 页面跳转（复用全局封装，自动区分 tabBar / 普通页）

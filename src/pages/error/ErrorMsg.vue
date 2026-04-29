@@ -162,6 +162,8 @@ import wsClient from "@/utils/websocket"
 import { navigateToPage } from "@/utils/navigation"
 import UChartCanvas from "@/components/charts/UChartCanvas.vue"
 import DateTimePickerField from "@/components/DateTimePickerField.vue"
+import { isWithinDateTimeRange } from "@/utils/dateTimeRange"
+import { countRowsByKey, mergeCounts, toErrorRingSeries } from "@/utils/errorChart"
 
 const tableData = ref([])
 const total = ref(0)
@@ -193,16 +195,6 @@ const CHART_REFRESH_DEBOUNCE = 800
 // 汇总时防止后端数据异常造成翻页死循环
 const CHART_MAX_PAGES = 50
 const CHART_PAGE_SIZE = 100
-const CHART_COLORS = [
-  "#2563eb",
-  "#dc2626",
-  "#d97706",
-  "#059669",
-  "#7c3aed",
-  "#0891b2",
-  "#ea580c",
-  "#4f46e5",
-]
 
 const showDeviceFeatures = computed(
   () => appStore.value.settings.showDeviceFeatures,
@@ -227,10 +219,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   wsClient.off("error_update", handleErrorData)
-  if (chartRefreshTimer) {
-    clearTimeout(chartRefreshTimer)
-    chartRefreshTimer = null
-  }
+  clearChartRefreshTimer()
   // 作废正在进行的汇总请求，防止异步回调写入已卸载页面的 ref
   chartFetchSeq += 1
 })
@@ -262,13 +251,8 @@ function buildQueryParams() {
   }
 }
 
-// 供 handleErrorData 快速判定 WebSocket 推送条目是否在当前筛选时间范围内。
-// 空边界代表"不限制"。返回数值型时间戳（ms），解析失败返回 null。
-function parseBoundary(text) {
-  if (!text) return null
-  const normalized = String(text).trim().replace("T", " ")
-  const t = new Date(normalized.replace(/-/g, "/")).getTime()
-  return Number.isFinite(t) ? t : null
+function getChartQueryParams() {
+  return buildQueryParams()
 }
 
 async function fetchData() {
@@ -296,29 +280,26 @@ async function fetchData() {
   }
 }
 
+function isErrorInCurrentFilter(data) {
+  const { d_no: filterDNo, startTime, endTime } = buildQueryParams()
+  if (filterDNo && data.d_no !== filterDNo) return false
+  return isWithinDateTimeRange(data.c_time, startTime, endTime)
+}
+
+function prependErrorRow(row) {
+  if (currentPage.value !== 1) return
+  tableData.value.unshift(row)
+  if (tableData.value.length > pageSize.value) {
+    tableData.value.pop()
+  }
+}
+
 function handleErrorData(data) {
-  const { d_no: filterDNo } = buildQueryParams()
-  if (filterDNo && data.d_no !== filterDNo) {
-    return
-  }
+  if (!isErrorInCurrentFilter(data)) return
 
-  // 时间范围过滤：筛选条件里设定的上下界，推送条目必须在其中。
-  const incomingTs = parseBoundary(data.c_time)
-  const startTs = parseBoundary(startDateTime.value)
-  const endTs = parseBoundary(endDateTime.value)
-  if (startTs !== null && incomingTs !== null && incomingTs < startTs) return
-  if (endTs !== null && incomingTs !== null && incomingTs > endTs) return
-
-  const current = normalizeRow(data)
-  if (currentPage.value === 1) {
-    tableData.value.unshift(current)
-    if (tableData.value.length > pageSize.value) {
-      tableData.value.pop()
-    }
-  }
+  prependErrorRow(normalizeRow(data))
   total.value += 1
-  // WebSocket 推送来的每一条都触发汇总重建会太抖，这里走 debounce：
-  // 短时间内连续 error_update 合并成一次重新汇总
+  // WebSocket 推送只做当前筛选范围内的增量展示；图表聚合较重，必须 debounce 合并刷新。
   scheduleChartRefresh()
 }
 
@@ -348,79 +329,76 @@ function onEndDateTimeChange(value) {
 // 根据当前筛选条件汇总 /api/error 的全量结果，按当前选择的 e_msg / e_no 维度计数，
 // 生成 uCharts ring 图的 series。接口是分页的，这里循环拉取并用多种终止条件
 // （页末、total、最大页数）防止死循环。
-async function aggregateChartData(seq) {
-  const { d_no, startTime, endTime } = buildQueryParams()
-  const counts = new Map()
+async function fetchChartPage(page, params, seq) {
+  try {
+    return await getErrorMsg(
+      page,
+      CHART_PAGE_SIZE,
+      params.d_no,
+      params.startTime,
+      params.endTime,
+    )
+  } catch (error) {
+    if (seq !== chartFetchSeq) return null
+    console.error("汇总错误类型分布失败:", error)
+    throw error
+  }
+}
 
+function shouldStopChartAggregation(rows, aggregatedTotal, declaredTotal) {
+  // 接口是分页的，图表需要统计当前筛选下的全量结果；这些终止条件用于避免异常数据导致死循环。
+  if (rows.length === 0) return true
+  if (declaredTotal !== null && aggregatedTotal >= declaredTotal) return true
+  return rows.length < CHART_PAGE_SIZE
+}
+
+// 图表统计的是当前筛选条件下的全量错误分布，不是只统计当前列表页。
+async function aggregateChartData(seq) {
+  const params = getChartQueryParams()
+  const counts = new Map()
   let page = 1
   let aggregatedTotal = 0
   let declaredTotal = null
 
   while (page <= CHART_MAX_PAGES) {
-    let res
-    try {
-      res = await getErrorMsg(page, CHART_PAGE_SIZE, d_no, startTime, endTime)
-    } catch (error) {
-      if (seq !== chartFetchSeq) return null
-      console.error("汇总错误类型分布失败:", error)
-      throw error
-    }
-    if (seq !== chartFetchSeq) return null
+    const res = await fetchChartPage(page, params, seq)
+    if (seq !== chartFetchSeq || !res) return null
 
     const rows = res?.data?.data || []
     if (declaredTotal === null) {
-      declaredTotal = Number(res?.data?.total)
-      if (!Number.isFinite(declaredTotal)) declaredTotal = null
+      const totalFromResponse = Number(res?.data?.total)
+      declaredTotal = Number.isFinite(totalFromResponse) ? totalFromResponse : null
     }
 
-    rows.forEach((row) => {
-      const rawValue = row?.[chartGroupKey.value]
-      const key = String(rawValue ?? "").trim() || "未填写"
-      counts.set(key, (counts.get(key) || 0) + 1)
-    })
-
+    mergeCounts(counts, countRowsByKey(rows, chartGroupKey.value))
     aggregatedTotal += rows.length
 
-    // 终止条件：空页、已拉够 declaredTotal、返回条数不足一页
-    if (rows.length === 0) break
-    if (declaredTotal !== null && aggregatedTotal >= declaredTotal) break
-    if (rows.length < CHART_PAGE_SIZE) break
-
+    if (shouldStopChartAggregation(rows, aggregatedTotal, declaredTotal)) break
     page += 1
   }
 
   return { counts, aggregatedTotal }
 }
 
-async function refreshChart() {
-  if (chartRefreshTimer) {
-    clearTimeout(chartRefreshTimer)
-    chartRefreshTimer = null
+function applyChartResult(result, seq) {
+  if (seq !== chartFetchSeq) return
+  if (!result?.counts) {
+    chartSeries.value = []
+    chartTotal.value = 0
+    return
   }
+
+  chartSeries.value = toErrorRingSeries(result.counts)
+  chartTotal.value = result.aggregatedTotal || 0
+}
+
+async function refreshChart() {
+  clearChartRefreshTimer()
   const seq = ++chartFetchSeq
+  // seq 是图表请求的版本号：筛选或分组变化后，旧请求回来也不能覆盖新结果。
   chartLoading.value = true
   try {
-    const { counts, aggregatedTotal } = (await aggregateChartData(seq)) || {}
-    if (seq !== chartFetchSeq) return
-    if (!counts) {
-      chartSeries.value = []
-      chartTotal.value = 0
-      return
-    }
-
-    const items = Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([name, value], index) => ({
-        name: name.length > 14 ? `${name.slice(0, 14)}...` : name,
-        rawName: name,
-        data: value,
-        color: CHART_COLORS[index % CHART_COLORS.length],
-      }))
-      .filter((item) => item.data > 0)
-
-    chartSeries.value = items
-    chartTotal.value = aggregatedTotal || 0
+    applyChartResult(await aggregateChartData(seq), seq)
   } catch (error) {
     if (seq !== chartFetchSeq) return
     chartSeries.value = []
@@ -432,10 +410,14 @@ async function refreshChart() {
   }
 }
 
+function clearChartRefreshTimer() {
+  if (!chartRefreshTimer) return
+  clearTimeout(chartRefreshTimer)
+  chartRefreshTimer = null
+}
+
 function scheduleChartRefresh() {
-  if (chartRefreshTimer) {
-    clearTimeout(chartRefreshTimer)
-  }
+  clearChartRefreshTimer()
   chartRefreshTimer = setTimeout(() => {
     chartRefreshTimer = null
     refreshChart()

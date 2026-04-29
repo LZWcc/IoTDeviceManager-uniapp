@@ -246,7 +246,7 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const pageSizes = [5, 10, 20, 50, 100]
 const pageSizeIndex = ref(1)
-const chartDataMode = ref("range")
+const chartDataMode = ref("page")
 const chartModeOptions = [
   { label: "趋势总览", value: "range" },
   { label: "当前页明细", value: "page" },
@@ -310,26 +310,13 @@ const filteredTableHeader = computed(() => {
 })
 
 const handleWsData = (data) => {
-  if (
-    appStore.value.settings.showDeviceFeatures &&
-    d_no.value &&
-    data.d_no &&
-    data.d_no !== d_no.value
-  ) {
-    return
-  }
-
-  if (!data.timestamp) return
-
-  const dataTime = new Date(data.timestamp)
-  const start = parseDateTime(startDate.value, startTime.value, false)
-  const end = parseDateTime(endDate.value, endTime.value, true)
-
-  if ((!start || dataTime >= start) && (!end || dataTime <= end)) {
+  // 历史页收到实时推送后不直接改表格，只在推送数据命中当前筛选范围时调度刷新。
+  if (shouldRefreshChartFromWs(data)) {
     scheduleHistoryRefresh()
   }
 }
 
+// 页面初始化入口：先加载当前页表格；默认 page 模式下会顺带用表格数据生成图表，最后再订阅实时更新。
 onMounted(async () => {
   try {
     await fetchData()
@@ -344,6 +331,7 @@ onMounted(async () => {
     })
   }
 
+  // 初始化数据完成后再监听 WebSocket，避免页面还未准备好就处理实时推送。
   wsClient.on("sensor_update", handleWsData)
   wsClient.send({
     type: "subscribe",
@@ -353,42 +341,64 @@ onMounted(async () => {
 
 onUnmounted(() => {
   wsClient.off("sensor_update", handleWsData)
-  if (wsRefreshTimer) {
-    clearTimeout(wsRefreshTimer)
-    wsRefreshTimer = null
-  }
-  if (wsHistoryRefreshTimer) {
-    clearTimeout(wsHistoryRefreshTimer)
-    wsHistoryRefreshTimer = null
-  }
+  clearScheduledChartRefresh()
+  clearScheduledHistoryRefresh()
 })
 
-async function fetchData() {
-  try {
-    const res = await getFormatPaged(
-      currentPage.value,
-      pageSize.value,
-      d_no.value,
-      buildDateTimeParam(startDate.value, startTime.value, false),
-      buildDateTimeParam(endDate.value, endTime.value, true),
-      type.value,
-    )
-    const response = Array.isArray(res.data.data) ? res.data.data : []
-    total.value = res.data.total
+// 汇总当前筛选、分页和业务类型，生成表格分页接口需要的参数。
+function buildTableQueryParams() {
+  return {
+    page: currentPage.value,
+    pageSize: pageSize.value,
+    dNo: d_no.value,
+    startTime: buildDateTimeParam(startDate.value, startTime.value, false),
+    endTime: buildDateTimeParam(endDate.value, endTime.value, true),
+    type: type.value,
+  }
+}
 
-    if (response.length > 0) {
-      tableHeader.value = response[0].map((field) => ({
+// 统一整理分页接口返回值：表格行、动态表头和总数都在这里标准化。
+function normalizeTableResponse(res) {
+  const rows = Array.isArray(res.data.data) ? res.data.data : []
+  const headers = rows.length
+    ? rows[0].map((field) => ({
         prop: field.f_name,
         label: field.unit ? `${field.f_name}(${field.unit})` : field.f_name,
       }))
-    } else {
-      tableHeader.value = []
-    }
+    : []
 
-    tableData.value = response
-    if (chartDataMode.value === "page") {
-      updateChartFromCurrentPage()
-    }
+  return {
+    rows,
+    headers,
+    total: res.data.total,
+  }
+}
+
+// 应用表格请求结果；当前页明细模式下，图表直接跟随表格当前页同步重建。
+function applyTableResponse(result) {
+  tableData.value = result.rows
+  tableHeader.value = result.headers
+  total.value = result.total
+
+  if (chartDataMode.value === "page") {
+    updateChartFromCurrentPage()
+  }
+}
+
+// 表格数据主入口：只请求当前页数据，并把响应交给标准化和应用函数处理。
+// 表格接口只负责当前页数据；图表接口单独请求，避免把两种返回结构混在一起处理。
+async function fetchData() {
+  try {
+    const params = buildTableQueryParams()
+    const res = await getFormatPaged(
+      params.page,
+      params.pageSize,
+      params.dNo,
+      params.startTime,
+      params.endTime,
+      params.type,
+    )
+    applyTableResponse(normalizeTableResponse(res))
   } catch (error) {
     console.error("获取数据失败:", error)
     uni.showToast({
@@ -398,10 +408,67 @@ async function fetchData() {
   }
 }
 
-async function fetchChartData() {
-  if (chartDataMode.value !== "range") {
-    return
+function buildChartQueryParams() {
+  return {
+    dNo: d_no.value,
+    startTime: buildDateTimeParam(startDate.value, startTime.value, false),
+    endTime: buildDateTimeParam(endDate.value, endTime.value, true),
+    type: type.value,
   }
+}
+
+function getChartMaxPoints() {
+  const screenWidth = uni.getSystemInfoSync().windowWidth || 375
+  return screenWidth >= 1024 ? MAX_CHART_POINTS_DESKTOP : MAX_CHART_POINTS_MOBILE
+}
+
+function normalizeChartResponse(res) {
+  const { times, series } = res.data.data
+  if (!times?.length) {
+    return {
+      categories: [],
+      series: [],
+      yAxis: { disabled: false, splitNumber: 5 },
+    }
+  }
+
+  const aligned = alignChartDataToCategories(times, series)
+  const sampled = downsampleChartData(
+    aligned.times,
+    aligned.series,
+    getChartMaxPoints(),
+  )
+  const normalizedSeries = normalizeChartSeries(
+    sampled.series.map((item) => ({
+      ...item,
+      unit: item.unit || "",
+    })),
+    currentChartType.value,
+  )
+
+  return {
+    categories: sampled.times,
+    series: normalizedSeries,
+    yAxis: createValueAxisConfig(normalizedSeries, {
+      forceZeroMin: true,
+      fixedMax: CHART_AXIS_MAX,
+    }),
+  }
+}
+
+function applyChartResponse(result, requestId) {
+  // 图表请求可能被筛选、模式切换打断，旧请求回来不能覆盖新状态。
+  if (requestId !== chartRequestId || chartDataMode.value !== "range") return
+
+  chartCategories.value = result.categories
+  chartSeries.value = result.series
+  chartYAxis.value = result.yAxis
+  appendLatestTablePointToRangeChart()
+}
+
+// 趋势总览使用独立图表接口；当前页明细模式由表格数据生成，不走这里。
+async function fetchChartData() {
+  if (chartDataMode.value !== "range") return
   if (isChartFetching) {
     hasPendingChartRefresh = true
     return
@@ -411,48 +478,14 @@ async function fetchChartData() {
   const requestId = ++chartRequestId
   lastChartFetchAt = Date.now()
   try {
+    const params = buildChartQueryParams()
     const res = await getFormatChart(
-      d_no.value,
-      buildDateTimeParam(startDate.value, startTime.value, false),
-      buildDateTimeParam(endDate.value, endTime.value, true),
-      type.value,
+      params.dNo,
+      params.startTime,
+      params.endTime,
+      params.type,
     )
-    const { times, series } = res.data.data
-
-    if (requestId !== chartRequestId) {
-      return
-    }
-    if (chartDataMode.value !== "range") {
-      return
-    }
-
-    if (!times?.length) {
-      chartCategories.value = []
-      chartSeries.value = []
-      chartYAxis.value = { disabled: false, splitNumber: 5 }
-      return
-    }
-
-    const screenWidth = uni.getSystemInfoSync().windowWidth || 375
-    const maxPoints =
-      screenWidth >= 1024 ? MAX_CHART_POINTS_DESKTOP : MAX_CHART_POINTS_MOBILE
-    const aligned = alignChartDataToCategories(times, series)
-    const sampled = downsampleChartData(aligned.times, aligned.series, maxPoints)
-    const normalizedSeries = normalizeChartSeries(
-      sampled.series.map((item) => ({
-        ...item,
-        unit: item.unit || "",
-      })),
-      currentChartType.value,
-    )
-
-    chartCategories.value = sampled.times
-    chartSeries.value = normalizedSeries
-    chartYAxis.value = createValueAxisConfig(normalizedSeries, {
-      forceZeroMin: true,
-      fixedMax: CHART_AXIS_MAX,
-    })
-    appendLatestTablePointToRangeChart()
+    applyChartResponse(normalizeChartResponse(res), requestId)
   } catch (error) {
     console.error("获取图表数据失败:", error)
     uni.showToast({
@@ -468,17 +501,46 @@ async function fetchChartData() {
   }
 }
 
-function scheduleChartRefresh() {
-  if (chartDataMode.value !== "range") {
-    return
-  }
-  const elapsed = Date.now() - lastChartFetchAt
-  const delay = Math.max(500, CHART_REFRESH_INTERVAL - elapsed)
-
+function clearScheduledChartRefresh() {
   if (wsRefreshTimer) {
     clearTimeout(wsRefreshTimer)
+    wsRefreshTimer = null
   }
+  hasPendingChartRefresh = false
+}
 
+function clearScheduledHistoryRefresh() {
+  if (wsHistoryRefreshTimer) {
+    clearTimeout(wsHistoryRefreshTimer)
+    wsHistoryRefreshTimer = null
+  }
+}
+
+function shouldRefreshChartFromWs(data) {
+  if (
+    appStore.value.settings.showDeviceFeatures &&
+    d_no.value &&
+    data.d_no &&
+    data.d_no !== d_no.value
+  ) {
+    return false
+  }
+  if (!data.timestamp) return false
+
+  const dataTime = new Date(data.timestamp)
+  const start = parseDateTime(startDate.value, startTime.value, false)
+  const end = parseDateTime(endDate.value, endTime.value, true)
+  return (!start || dataTime >= start) && (!end || dataTime <= end)
+}
+
+function scheduleChartRefresh() {
+  if (chartDataMode.value !== "range") return
+
+  const elapsed = Date.now() - lastChartFetchAt
+  const delay = Math.max(500, CHART_REFRESH_INTERVAL - elapsed)
+  clearScheduledChartRefresh()
+
+  // 图表接口可能较重，实时推送过来时至少间隔 CHART_REFRESH_INTERVAL 再重新拉取。
   wsRefreshTimer = setTimeout(() => {
     if (isChartFetching) {
       hasPendingChartRefresh = true
@@ -489,25 +551,16 @@ function scheduleChartRefresh() {
 }
 
 function scheduleHistoryRefresh() {
-  if (wsHistoryRefreshTimer) {
-    clearTimeout(wsHistoryRefreshTimer)
-  }
+  clearScheduledHistoryRefresh()
 
   wsHistoryRefreshTimer = setTimeout(async () => {
     wsHistoryRefreshTimer = null
     await fetchData()
     if (chartDataMode.value === "range") {
-      await fetchChartData()
+      // WebSocket 是被动高频来源，趋势图刷新必须复用节流，不能绕过后直接拉全量图表。
+      scheduleChartRefresh()
     }
   }, HISTORY_REFRESH_DEBOUNCE)
-}
-
-function clearScheduledChartRefresh() {
-  if (wsRefreshTimer) {
-    clearTimeout(wsRefreshTimer)
-    wsRefreshTimer = null
-  }
-  hasPendingChartRefresh = false
 }
 
 function readEventValue(e) {
@@ -528,16 +581,15 @@ function onEndDateTimeChange(value) {
   applyDateTimeValue("end", value)
 }
 
-function buildDateTimeParam(date, time, isEnd) {
+// 日期和时间在页面状态里分开存，只有展示和请求前才组装成后端需要的 datetime 字符串。
+function buildDateTimeText(date, time, isEnd) {
   if (!date) return ""
   const fallbackTime = isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME
   return `${date} ${normalizeTimeText(time, fallbackTime)}`
 }
 
-function buildDateTimeText(date, time, isEnd) {
-  if (!date) return ""
-  const fallbackTime = isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME
-  return `${date} ${normalizeTimeText(time, fallbackTime)}`
+function buildDateTimeParam(date, time, isEnd) {
+  return buildDateTimeText(date, time, isEnd)
 }
 
 function normalizeTimeText(time, fallbackTime) {
@@ -617,6 +669,7 @@ async function onFilter() {
   currentPage.value = 1
   await fetchData()
   if (chartDataMode.value === "range") {
+    clearScheduledChartRefresh()
     await fetchChartData()
   }
 }
@@ -630,6 +683,7 @@ async function onReset() {
   currentPage.value = 1
   await fetchData()
   if (chartDataMode.value === "range") {
+    clearScheduledChartRefresh()
     await fetchChartData()
   }
 }
@@ -667,6 +721,7 @@ function onChartModeChange(e) {
   fetchChartData()
 }
 
+// 当前页明细图表入口：不请求图表接口，直接把当前页表格数据转换成图表数据。
 function updateChartFromCurrentPage() {
   clearScheduledChartRefresh()
   chartRequestId += 1
@@ -682,6 +737,7 @@ function updateChartFromCurrentPage() {
   })
 }
 
+// 将当前页表格行转换为图表 categories/series；表格通常倒序展示，图表按时间正序展示。
 function buildChartDataFromTableData(rows) {
   if (!Array.isArray(rows) || rows.length === 0) {
     return { categories: [], series: [] }
@@ -730,19 +786,22 @@ function findFieldByName(row, name) {
 function appendLatestTablePointToRangeChart() {
   const latestRow = tableData.value[0]
   if (!Array.isArray(latestRow) || chartDataMode.value !== "range") return
+  if (!chartCategories.value?.length || !chartSeries.value?.length) return
 
   const timeText = getChartMinuteText(findFieldByName(latestRow, "更新时间")?.value)
   if (!timeText || chartCategories.value.includes(timeText)) return
 
-  const nextSeries = (chartSeries.value || []).map((item) => {
+  const nextSeries = chartSeries.value.map((item) => {
+    if (!item?.name || !Array.isArray(item.data)) return item
+
     const field = findFieldByName(latestRow, item.name)
     return {
       ...item,
-      data: [...(item.data || []), toChartNumber(field?.value)],
+      data: [...item.data, toChartNumber(field?.value)],
     }
   })
 
-  chartCategories.value = [...(chartCategories.value || []), timeText]
+  chartCategories.value = [...chartCategories.value, timeText]
   chartSeries.value = nextSeries
   chartYAxis.value = createValueAxisConfig(nextSeries, {
     forceZeroMin: true,

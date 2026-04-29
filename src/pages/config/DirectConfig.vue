@@ -118,6 +118,13 @@ import {
 } from "@/api/get_direct_config"
 import ConfigNode from "@/components/ConfigNode.vue"
 import { appStore } from "@/stores/index"
+import {
+  cloneDeep,
+  initConfigTreeValues,
+  collectConfigValues,
+  getChangedConfigValues,
+  isValidConfigValue,
+} from "@/utils/directConfigTree"
 
 // 简易 debounce
 function debounce(fn, delay) {
@@ -126,11 +133,6 @@ function debounce(fn, delay) {
     clearTimeout(timer)
     timer = setTimeout(() => fn.apply(this, args), delay)
   }
-}
-
-// 深拷贝
-function cloneDeep(obj) {
-  return JSON.parse(JSON.stringify(obj))
 }
 
 export default {
@@ -189,155 +191,91 @@ export default {
   },
 
   methods: {
-    // 初始化节点默认值
-    initNodeValue(node) {
-      if (node.f_type === "3") {
-        node.min = Number(node.min) || 0
-        node.max = Number(node.max) || 100
-      }
-      if (
-        node.value !== null &&
-        node.value !== undefined &&
-        node.value !== ""
-      ) {
-        if (node.f_type === "3") node.value = Number(node.value)
-      } else {
-        let defaultValue = ""
-        switch (node.f_type) {
-          case "1":
-            defaultValue =
-              Array.isArray(node.f_value) && node.f_value.length > 0
-                ? node.f_value[0].value
-                : "off"
-            break
-          case "2":
-            defaultValue = ""
-            break
-          case "3":
-            defaultValue = Number(node.min) || 0
-            break
-          case "4":
-            defaultValue = null
-            break
-          case "5":
-            defaultValue = ""
-            break
-        }
-        node.value = defaultValue
-      }
-      if (node.children && node.children.length > 0) {
-        node.children.forEach((child) => this.initNodeValue(child))
-      }
+    setInitLock(type, locked) {
+      if (type === "global") this.globalInitLock = locked
+      else this.deviceInitLock = locked
     },
 
-    // 加载配置
+    setSavingState(isGlobal, saving) {
+      if (isGlobal) this.isGlobalSaving = saving
+      else this.isDeviceSaving = saving
+    },
+
+    getConfigList(isGlobal) {
+      return isGlobal ? this.globalConfigList : this.deviceConfigList
+    },
+
+    getConfigSnapshot(isGlobal) {
+      return isGlobal ? this.globalConfigSnapshot : this.deviceConfigSnapshot
+    },
+
+    // 配置加载会触发 deep watch，初始化锁用于避免“刚加载完就自动保存”。
+    updateConfigState(type, data) {
+      const values = collectConfigValues(data)
+      if (type === "global") {
+        this.globalConfigList = data
+        this.globalConfigSnapshot = cloneDeep(values)
+        return
+      }
+      this.deviceConfigList = data
+      this.deviceConfigSnapshot = cloneDeep(values)
+    },
+
+    updateConfigSnapshot(isGlobal, configList) {
+      const snapshot = cloneDeep(collectConfigValues(configList))
+      if (isGlobal) this.globalConfigSnapshot = snapshot
+      else this.deviceConfigSnapshot = snapshot
+    },
+
+    getAutoSaveContext(d_no) {
+      const isGlobal = d_no === "GLOBAL"
+      const configList = this.getConfigList(isGlobal)
+      const snapshot = this.getConfigSnapshot(isGlobal)
+      return { isGlobal, configList, snapshot }
+    },
+
+    showAutoSaveToast(isGlobal, d_no, count) {
+      const msg = isGlobal
+        ? `全局配置已保存 (${count} 项)`
+        : `设备 ${d_no} 配置已保存 (${count} 项)`
+      uni.showToast({ title: msg, icon: "success", duration: 2000 })
+    },
+
+    // 加载配置：只做请求、初始化默认值和刷新快照，不在这里触发保存。
     async loadConfig(d_no, type) {
-      if (type === "global") this.globalInitLock = true
-      else this.deviceInitLock = true
+      this.setInitLock(type, true)
       try {
-        const data = await getDirectConfig(d_no)
-        data.forEach((item) => this.initNodeValue(item))
-        if (type === "global") {
-          this.globalConfigList = data
-          this.globalConfigSnapshot = cloneDeep(this.collectAllValues(data))
-        } else {
-          this.deviceConfigList = data
-          this.deviceConfigSnapshot = cloneDeep(this.collectAllValues(data))
-        }
+        const data = initConfigTreeValues(await getDirectConfig(d_no))
+        this.updateConfigState(type, data)
       } catch (error) {
         console.error(`加载配置失败（d_no=${d_no}）:`, error)
         uni.showToast({ title: "加载配置失败", icon: "none" })
       } finally {
         setTimeout(() => {
-          if (type === "global") this.globalInitLock = false
-          else this.deviceInitLock = false
+          this.setInitLock(type, false)
         }, 500)
       }
     },
 
-    // 扁平化收集所有节点的值
-    collectAllValues(nodes) {
-      const result = []
-      const traverse = (node) => {
-        result.push({
-          id: node.id,
-          t_name: node.t_name,
-          f_type: node.f_type,
-          value: node.value,
-        })
-        if (node.children && node.children.length > 0) {
-          node.children.forEach((child) => traverse(child))
-        }
-      }
-      nodes.forEach((n) => traverse(n))
-      return result
-    },
-
-    // 获取变更的值
-    getChangedValues(currentValues, snapshot) {
-      if (!snapshot || snapshot.length === 0) return []
-      return currentValues.filter((item) => {
-        const original = snapshot.find((s) => s.id === item.id)
-        return !original || String(original.value) !== String(item.value)
-      })
-    },
-
-    // 自动保存
+    // 自动保存只提交和快照相比发生变化的非空项，避免每次修改都下发整棵配置树。
     async autoSave(d_no) {
-      const isGlobal = d_no === "GLOBAL"
-      if (isGlobal) this.isGlobalSaving = true
-      else this.isDeviceSaving = true
+      const { isGlobal, configList, snapshot } = this.getAutoSaveContext(d_no)
+      this.setSavingState(isGlobal, true)
       try {
-        const configList = isGlobal
-          ? this.globalConfigList
-          : this.deviceConfigList
-        const allValues = this.collectAllValues(configList)
-        const snapshot = isGlobal
-          ? this.globalConfigSnapshot
-          : this.deviceConfigSnapshot
-        const changedValues = this.getChangedValues(allValues, snapshot)
-        if (changedValues.length === 0) return
+        const allValues = collectConfigValues(configList)
+        const validValues = getChangedConfigValues(allValues, snapshot).filter(
+          isValidConfigValue,
+        )
+        if (validValues.length === 0) return
 
-        const validValues = changedValues.filter((item) => {
-          if (["1", "3", "5"].includes(item.f_type)) {
-            return (
-              item.value !== null &&
-              item.value !== undefined &&
-              item.value !== ""
-            )
-          }
-          if (["2", "4"].includes(item.f_type)) {
-            return (
-              item.value !== null &&
-              item.value !== undefined &&
-              item.value !== ""
-            )
-          }
-          return true
-        })
-
-        if (validValues.length > 0) {
-          await saveDirectConfig(validValues, d_no)
-          if (isGlobal) {
-            this.globalConfigSnapshot = cloneDeep(
-              this.collectAllValues(configList),
-            )
-          } else {
-            this.deviceConfigSnapshot = cloneDeep(
-              this.collectAllValues(configList),
-            )
-          }
-          const msg = isGlobal
-            ? `全局配置已保存 (${validValues.length} 项)`
-            : `设备 ${d_no} 配置已保存 (${validValues.length} 项)`
-          uni.showToast({ title: msg, icon: "success", duration: 2000 })
-        }
+        await saveDirectConfig(validValues, d_no)
+        this.updateConfigSnapshot(isGlobal, configList)
+        this.showAutoSaveToast(isGlobal, d_no, validValues.length)
       } catch (error) {
         console.error("保存配置时出错:", error)
         uni.showToast({ title: "保存配置失败", icon: "none" })
       } finally {
-        if (isGlobal) this.isGlobalSaving = false
-        else this.isDeviceSaving = false
+        this.setSavingState(isGlobal, false)
       }
     },
 
