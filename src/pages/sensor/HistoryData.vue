@@ -34,10 +34,8 @@
         <DateTimePickerField
           field="start"
           placeholder="请选择开始时间"
-          default-start-time="00:00:00"
-          default-end-time="23:59:59"
-          :start-value="startDateTimeText"
-          :end-value="endDateTimeText"
+          :start-value="startDateTime"
+          :end-value="endDateTime"
           @update:startValue="onStartDateTimeChange"
           @update:endValue="onEndDateTimeChange"
         />
@@ -48,10 +46,8 @@
         <DateTimePickerField
           field="end"
           placeholder="请选择结束时间"
-          default-start-time="00:00:00"
-          default-end-time="23:59:59"
-          :start-value="startDateTimeText"
-          :end-value="endDateTimeText"
+          :start-value="startDateTime"
+          :end-value="endDateTime"
           @update:startValue="onStartDateTimeChange"
           @update:endValue="onEndDateTimeChange"
         />
@@ -233,12 +229,8 @@ import { navigateToPage } from "@/utils/navigation"
 
 const type = ref("sensor")
 const d_no = ref("")
-const DEFAULT_START_TIME = "00:00:00"
-const DEFAULT_END_TIME = "23:59:59"
-const startDate = ref("")
-const startTime = ref(DEFAULT_START_TIME)
-const endDate = ref("")
-const endTime = ref(DEFAULT_END_TIME)
+const startDateTime = ref("")
+const endDateTime = ref("")
 const tableData = ref([])
 const tableHeader = ref([])
 const total = ref(0)
@@ -284,12 +276,6 @@ const chartModeIndex = computed(() => {
   return index >= 0 ? index : 0
 })
 const currentChartType = computed(() => chartTypes[chartTypeIndex.value].value)
-const startDateTimeText = computed(() =>
-  buildDateTimeText(startDate.value, startTime.value, false),
-)
-const endDateTimeText = computed(() =>
-  buildDateTimeText(endDate.value, endTime.value, true),
-)
 
 const formattedTableData = computed(() => {
   return tableData.value.map((row) => {
@@ -351,8 +337,8 @@ function buildTableQueryParams() {
     page: currentPage.value,
     pageSize: pageSize.value,
     dNo: d_no.value,
-    startTime: buildDateTimeParam(startDate.value, startTime.value, false),
-    endTime: buildDateTimeParam(endDate.value, endTime.value, true),
+    startTime: startDateTime.value,
+    endTime: endDateTime.value,
     type: type.value,
   }
 }
@@ -411,8 +397,8 @@ async function fetchData() {
 function buildChartQueryParams() {
   return {
     dNo: d_no.value,
-    startTime: buildDateTimeParam(startDate.value, startTime.value, false),
-    endTime: buildDateTimeParam(endDate.value, endTime.value, true),
+    startTime: startDateTime.value,
+    endTime: endDateTime.value,
     type: type.value,
   }
 }
@@ -528,8 +514,10 @@ function shouldRefreshChartFromWs(data) {
   if (!data.timestamp) return false
 
   const dataTime = new Date(data.timestamp)
-  const start = parseDateTime(startDate.value, startTime.value, false)
-  const end = parseDateTime(endDate.value, endTime.value, true)
+  if (Number.isNaN(dataTime.getTime())) return false
+
+  const start = parseDateTimeValue(startDateTime.value)
+  const end = parseDateTimeValue(endDateTime.value)
   return (!start || dataTime >= start) && (!end || dataTime <= end)
 }
 
@@ -574,87 +562,32 @@ function onDeviceInput(e) {
 }
 
 function onStartDateTimeChange(value) {
-  applyDateTimeValue("start", value)
+  startDateTime.value = normalizeDateTimeValue(value)
 }
 
 function onEndDateTimeChange(value) {
-  applyDateTimeValue("end", value)
+  endDateTime.value = normalizeDateTimeValue(value)
 }
 
-// 日期和时间在页面状态里分开存，只有展示和请求前才组装成后端需要的 datetime 字符串。
-function buildDateTimeText(date, time, isEnd) {
-  if (!date) return ""
-  const fallbackTime = isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME
-  return `${date} ${normalizeTimeText(time, fallbackTime)}`
+function normalizeDateTimeValue(value) {
+  return String(value || "").trim()
 }
 
-function buildDateTimeParam(date, time, isEnd) {
-  return buildDateTimeText(date, time, isEnd)
-}
+function parseDateTimeValue(value) {
+  const text = normalizeDateTimeValue(value)
+  if (!text) return null
 
-function normalizeTimeText(time, fallbackTime) {
-  const [fallbackHour = "00", fallbackMinute = "00", fallbackSecond = "00"] =
-    String(fallbackTime || DEFAULT_START_TIME).split(":")
-  const [hourText = fallbackHour, minuteText = fallbackMinute, secondText = fallbackSecond] =
-    String(time || "").split(":")
+  const [dateText = "", timeText = ""] = text.replace("T", " ").split(" ")
+  const dateParts = dateText.split("-").map((item) => Number(item))
+  const timeParts = timeText.split(":").map((item) => Number(item))
+  if (dateParts.length !== 3 || timeParts.length !== 3) return null
 
-  const parts = [hourText, minuteText, secondText].map((item, index) => {
-    const fallback = [fallbackHour, fallbackMinute, fallbackSecond][index]
-    const numeric = Number(item)
-    if (Number.isNaN(numeric)) {
-      return String(fallback).padStart(2, "0")
-    }
-    const [min, max] = index === 0 ? [0, 23] : [0, 59]
-    const safeValue = Math.min(Math.max(numeric, min), max)
-    return String(safeValue).padStart(2, "0")
-  })
-
-  return parts.join(":")
-}
-
-function applyDateTimeValue(kind, rawValue) {
-  const normalizedValue = String(rawValue || "").trim()
-  const isEnd = kind === "end"
-
-  if (!normalizedValue) {
-    if (kind === "start") {
-      startDate.value = ""
-      startTime.value = DEFAULT_START_TIME
-    } else {
-      endDate.value = ""
-      endTime.value = DEFAULT_END_TIME
-    }
-    return
-  }
-
-  const [dateText, timeText = isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME] =
-    normalizedValue.replace(" ", "T").split("T")
-  const safeTime = normalizeTimeText(
-    timeText,
-    isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME,
-  )
-
-  if (kind === "start") {
-    startDate.value = dateText
-    startTime.value = safeTime || DEFAULT_START_TIME
-  } else {
-    endDate.value = dateText
-    endTime.value = safeTime || DEFAULT_END_TIME
-  }
-}
-
-function parseDateTime(date, time, isEnd) {
-  if (!date) return null
-  const [year, month, day] = date.split("-").map((item) => Number(item))
-  const [hour, minute, second] = normalizeTimeText(
-    time,
-    isEnd ? DEFAULT_END_TIME : DEFAULT_START_TIME,
-  )
-    .split(":")
-    .map((item) => Number(item))
-
+  const [year, month, day] = dateParts
+  const [hour, minute, second] = timeParts
   if (
-    [year, month, day, hour, minute, second].some((item) => Number.isNaN(item))
+    [year, month, day, hour, minute, second].some(
+      (item) => !Number.isFinite(item),
+    )
   ) {
     return null
   }
@@ -676,10 +609,8 @@ async function onFilter() {
 
 async function onReset() {
   d_no.value = ""
-  startDate.value = ""
-  startTime.value = DEFAULT_START_TIME
-  endDate.value = ""
-  endTime.value = DEFAULT_END_TIME
+  startDateTime.value = ""
+  endDateTime.value = ""
   currentPage.value = 1
   await fetchData()
   if (chartDataMode.value === "range") {
