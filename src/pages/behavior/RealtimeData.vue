@@ -61,16 +61,15 @@ const selectedDeviceIndex = ref(0)
 const type = ref("behavior")
 const deviceList = ref([])
 
-onMounted(async () => {
+onMounted(() => {
+  loadDevices()
+})
+
+async function loadDevices() {
   try {
     const devices = await getDeviceList("behavior")
-    console.log("加载设备列表:", devices)
     deviceList.value = devices || []
-
-    if (devices && devices.length > 0) {
-      selectedDevice.value = devices[0]
-      selectedDeviceIndex.value = 0
-    }
+    selectDefaultDevice()
   } catch (error) {
     console.error("加载设备列表失败:", error)
     uni.showToast({
@@ -78,13 +77,19 @@ onMounted(async () => {
       icon: "none",
     })
   }
-})
+}
+
+function selectDefaultDevice() {
+  // 实时页只负责确定当前设备号；卡片和图表的数据请求仍由子组件自己处理。
+  if (deviceList.value.length === 0) return
+  selectedDevice.value = deviceList.value[0]
+  selectedDeviceIndex.value = 0
+}
 
 function onDeviceChange(e) {
   const index = e.detail.value
   selectedDeviceIndex.value = index
   selectedDevice.value = deviceList.value[index]
-  console.log("选择设备:", selectedDevice.value)
 }
 
 function navigateTo(url) {
