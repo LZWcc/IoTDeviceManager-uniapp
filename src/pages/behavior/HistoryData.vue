@@ -3,7 +3,7 @@
     <view class="menu-list">
       <view
         class="menu-item"
-        @click="navigateTo('/pages/behavior/RealtimeData')"
+        @click="navigateToPage('/pages/behavior/RealtimeData')"
       >
         <text class="menu-icon">📊</text>
         <text class="menu-text">实时数据</text>
@@ -334,18 +334,6 @@ onUnmounted(() => {
   clearScheduledHistoryRefresh()
 })
 
-// 汇总当前筛选、分页和业务类型，生成表格分页接口需要的参数。
-function buildTableQueryParams() {
-  return {
-    page: currentPage.value,
-    pageSize: pageSize.value,
-    dNo: d_no.value,
-    startTime: startDateTime.value,
-    endTime: endDateTime.value,
-    type: type.value,
-  }
-}
-
 // 统一整理分页接口返回值：表格行、动态表头和总数都在这里标准化。
 function normalizeTableResponse(res) {
   const rows = Array.isArray(res.data.data) ? res.data.data : []
@@ -378,31 +366,18 @@ function applyTableResponse(result) {
 // 表格接口只负责当前页数据；图表接口单独请求，避免把两种返回结构混在一起处理。
 async function fetchData() {
   try {
-    const params = buildTableQueryParams()
     const res = await getFormatPaged(
-      params.page,
-      params.pageSize,
-      params.dNo,
-      params.startTime,
-      params.endTime,
-      params.type,
+      currentPage.value,
+      pageSize.value,
+      d_no.value,
+      startDateTime.value,
+      endDateTime.value,
+      type.value,
     )
     applyTableResponse(normalizeTableResponse(res))
   } catch (error) {
     console.error("获取数据失败:", error)
-    uni.showToast({
-      title: "获取数据失败",
-      icon: "none",
-    })
-  }
-}
-
-function buildChartQueryParams() {
-  return {
-    dNo: d_no.value,
-    startTime: startDateTime.value,
-    endTime: endDateTime.value,
-    type: type.value,
+    uni.showToast({ title: "获取数据失败", icon: "none" })
   }
 }
 
@@ -467,12 +442,11 @@ async function fetchChartData() {
   const requestId = ++chartRequestId
   lastChartFetchAt = Date.now()
   try {
-    const params = buildChartQueryParams()
     const res = await getFormatChart(
-      params.dNo,
-      params.startTime,
-      params.endTime,
-      params.type,
+      d_no.value,
+      startDateTime.value,
+      endDateTime.value,
+      type.value,
     )
     applyChartResponse(normalizeChartResponse(res), requestId)
   } catch (error) {
@@ -557,30 +531,20 @@ function scheduleHistoryRefresh() {
   }, HISTORY_REFRESH_DEBOUNCE)
 }
 
-function readEventValue(e) {
-  if (e?.detail?.value !== undefined) return e.detail.value
-  if (e?.target?.value !== undefined) return e.target.value
-  return ""
-}
-
 function onDeviceInput(e) {
-  d_no.value = readEventValue(e)
+  d_no.value = e.detail.value ?? e.target.value ?? ""
 }
 
 function onStartDateTimeChange(value) {
-  startDateTime.value = normalizeDateTimeValue(value)
+  startDateTime.value = String(value || "").trim()
 }
 
 function onEndDateTimeChange(value) {
-  endDateTime.value = normalizeDateTimeValue(value)
-}
-
-function normalizeDateTimeValue(value) {
-  return String(value || "").trim()
+  endDateTime.value = String(value || "").trim()
 }
 
 function parseDateTimeValue(value) {
-  const text = normalizeDateTimeValue(value)
+  const text = String(value || "").trim()
   if (!text) return null
 
   const [dateText = "", timeText = ""] = text.replace("T", " ").split(" ")
@@ -633,7 +597,7 @@ function onPageSizeChange(e) {
 }
 
 function onChartTypeChange(e) {
-  const index = Number(readEventValue(e))
+  const index = Number(e.detail.value ?? e.target.value ?? 0)
   chartTypeIndex.value = Number.isNaN(index) ? 0 : index
   chartSeries.value = normalizeChartSeries(
     (chartSeries.value || []).map((item) => ({
@@ -644,7 +608,7 @@ function onChartTypeChange(e) {
 }
 
 function onChartModeChange(e) {
-  const index = Number(readEventValue(e))
+  const index = Number(e.detail.value ?? e.target.value ?? 0)
   const nextMode = chartModeOptions[index]?.value || "range"
   chartDataMode.value = nextMode
 
@@ -765,10 +729,6 @@ function nextPage() {
     currentPage.value++
     fetchData()
   }
-}
-
-function navigateTo(url) {
-  navigateToPage(url)
 }
 </script>
 

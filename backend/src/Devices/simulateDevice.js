@@ -48,14 +48,17 @@ function startDeviceSimulator(deviceId) {
     // console.log(`设备 ${deviceId} 收到消息 - 主题: ${topic}, 消息: ${msgStr}`)
     const data = JSON.parse(msgStr)
     const receivedDeviceId = data.d_no
+    const isHeartbeatAck = topic === `device/${deviceId}/heartbeat/ack`
 
     if (topic === 'device/direct' && data.topic === 'sync_time') {
       console.log(`[SYNC_TIME] 设备 ${deviceId} 收到全局同步时间: ${data.value}`)
       return
     }
 
-    if ((receivedDeviceId === deviceId || deviceId === 'GLOBAL') && topic !== `device/heartbeat/ack`) {
-      console.log(`设备 ${deviceId} 收到消息 - 主题: ${topic}, 来自设备: ${receivedDeviceId}, 消息: ${msgStr}`, '51')
+    if ((receivedDeviceId === deviceId || deviceId === 'GLOBAL') && !isHeartbeatAck) {
+      // 原日志保留如下；之前因为 heartbeat ack 主题判断不准确，会持续刷屏。
+      // console.log(`设备 ${deviceId} 收到消息 - 主题: ${topic}, 来自设备: ${receivedDeviceId}, 消息: ${msgStr}`, '51')
+      console.log(`设备 ${deviceId} 收到消息 - 主题: ${topic}, 来自设备: ${receivedDeviceId}, 消息: ${msgStr}`)
     }
   })
   client.on('error', (error) => {
