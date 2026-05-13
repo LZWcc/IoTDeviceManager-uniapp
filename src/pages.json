@@ -41,12 +41,6 @@
       "style": {
         "navigationBarTitleText": "行为历史数据"
       }
-    },
-    {
-      "path": "pages/expand/AiChat",
-      "style": {
-        "navigationBarTitleText": "AI智能助手"
-      }
     }
   ],
   "globalStyle": {
