@@ -1,0 +1,59 @@
+name: Deploy uniapp h5
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 拉取仓库代码
+        uses: actions/checkout@v6
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建 h5
+        run: pnpm build:h5
+
+      - name: 打包 dist/build/h5 目录
+        run: tar -czf uniapp-h5-dist.tar.gz -C dist/build/h5 .
+
+      - name: 将打包文件上传到服务器
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: uniapp-h5-dist.tar.gz
+          target: /tmp
+
+      - name: 在服务器上解压并部署
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            for target in /var/www/uni-iot /var/www/iot-device-manager; do
+              mkdir -p "$target"
+              find "$target" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+              tar -xzf /tmp/uniapp-h5-dist.tar.gz -C "$target"
+            done
+            rm -f /tmp/uniapp-h5-dist.tar.gz
