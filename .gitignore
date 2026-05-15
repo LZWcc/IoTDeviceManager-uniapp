@@ -28,6 +28,7 @@ backend/.env
 backend/src/history/*.bak
 
 .env.*
+!.env.production
 *.sql
 
 .claude/
