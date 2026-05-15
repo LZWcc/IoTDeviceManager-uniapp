@@ -17,10 +17,7 @@
     </view>
 
     <view class="filter-wrapper">
-      <view
-        class="filter-item"
-        v-if="appStore.settings.showDeviceFeatures"
-      >
+      <view class="filter-item" v-if="appStore.settings.showDeviceFeatures">
         <text class="filter-label">设备编号</text>
         <input
           class="filter-input"
@@ -60,7 +57,6 @@
         <button class="query-btn" @click="onFilter">查询</button>
         <button class="reset-btn" @click="onReset">重置</button>
       </view>
-
     </view>
 
     <view class="table-wrapper">
@@ -336,7 +332,7 @@ onUnmounted(() => {
 
 // 统一整理分页接口返回值：表格行、动态表头和总数都在这里标准化。
 function normalizeTableResponse(res) {
-  const rows = Array.isArray(res.data.data) ? res.data.data : []
+  const rows = Array.isArray(res.data) ? res.data : []
   const headers = rows.length
     ? rows[0].map((field) => ({
         prop: field.f_name,
@@ -347,7 +343,7 @@ function normalizeTableResponse(res) {
   return {
     rows,
     headers,
-    total: res.data.total,
+    total: res.total,
   }
 }
 
@@ -383,11 +379,13 @@ async function fetchData() {
 
 function getChartMaxPoints() {
   const screenWidth = uni.getSystemInfoSync().windowWidth || 375
-  return screenWidth >= 1024 ? MAX_CHART_POINTS_DESKTOP : MAX_CHART_POINTS_MOBILE
+  return screenWidth >= 1024
+    ? MAX_CHART_POINTS_DESKTOP
+    : MAX_CHART_POINTS_MOBILE
 }
 
 function normalizeChartResponse(res) {
-  const { times, series } = res.data.data
+  const { times, series } = res.data || {}
   if (!times?.length) {
     return {
       categories: [],
@@ -689,7 +687,9 @@ function appendLatestTablePointToRangeChart() {
   if (!Array.isArray(latestRow) || chartDataMode.value !== "range") return
   if (!chartCategories.value?.length || !chartSeries.value?.length) return
 
-  const timeText = getChartMinuteText(findFieldByName(latestRow, "更新时间")?.value)
+  const timeText = getChartMinuteText(
+    findFieldByName(latestRow, "更新时间")?.value,
+  )
   if (!timeText || chartCategories.value.includes(timeText)) return
 
   const nextSeries = chartSeries.value.map((item) => {
@@ -864,7 +864,6 @@ function nextPage() {
 .datetime-native-input :deep(input) {
   cursor: pointer;
 }
-
 
 .filter-actions {
   display: flex;

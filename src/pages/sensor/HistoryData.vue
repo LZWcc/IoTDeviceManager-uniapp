@@ -333,7 +333,7 @@ onUnmounted(() => {
 
 // 统一整理分页接口返回值：表格行、动态表头和总数都在这里标准化。
 function normalizeTableResponse(res) {
-  const rows = Array.isArray(res.data.data) ? res.data.data : []
+  const rows = Array.isArray(res.data) ? res.data : []
   const headers = rows.length
     ? rows[0].map((field) => ({
         prop: field.f_name,
@@ -344,7 +344,7 @@ function normalizeTableResponse(res) {
   return {
     rows,
     headers,
-    total: res.data.total,
+    total: res.total,
   }
 }
 
@@ -384,7 +384,7 @@ function getChartMaxPoints() {
 }
 
 function normalizeChartResponse(res) {
-  const { times, series } = res.data.data
+  const { times, series } = res.data || {}
   if (!times?.length) {
     return {
       categories: [],

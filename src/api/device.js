@@ -10,13 +10,16 @@ export async function getDevice(keyword = "") {
 }
 
 export async function deleteDevice(id) {
-  return instance.delete(`/api/device/${id}`)
+  const response = await instance.delete(`/api/device/${id}`)
+  return response.data
 }
 
 export async function addDevice(params) {
-  return instance.post(`/api/device`, params)
+  const response = await instance.post(`/api/device`, params)
+  return response.data
 }
 
 export async function editDevice(id, params) {
-  return instance.put(`/api/device/${id}`, params)
+  const response = await instance.put(`/api/device/${id}`, params)
+  return response.data
 }

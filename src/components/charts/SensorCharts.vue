@@ -69,7 +69,9 @@ const formattedData = computed(() => {
 const legendList = computed(() => {
   if (!formattedData.value.length) return []
   const exclude = ["设备编号", "更新时间", "是否在线数据", "时间"]
-  return Object.keys(formattedData.value[0]).filter((key) => !exclude.includes(key))
+  return Object.keys(formattedData.value[0]).filter(
+    (key) => !exclude.includes(key),
+  )
 })
 
 const units = computed(() => {
@@ -119,9 +121,8 @@ const chartYAxis = computed(() => {
 
 async function fetchDeviceData(d_no) {
   try {
-    const response = await getFormatMinuteAvg(d_no, props.type)
-    const data = response.data || response
-    deviceData.value = [...data]
+    const data = await getFormatMinuteAvg(d_no, props.type)
+    deviceData.value = Array.isArray(data) ? [...data] : []
   } catch (error) {
     console.error("获取设备数据失败:", error)
     uni.showToast({

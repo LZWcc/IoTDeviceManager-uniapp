@@ -64,10 +64,10 @@ watch(
 
 async function fetchDeviceData(d_no) {
   try {
-    const response = await getFormatLimit1ByDevice(d_no, props.type)
-    console.log("BigSensorCard fetched data:", response)
-    if (response && response.data && response.data.length > 0) {
-      tableData.value = response.data[0]
+    const data = await getFormatLimit1ByDevice(d_no, props.type)
+    console.log("BigSensorCard fetched data:", data)
+    if (data && data.length > 0) {
+      tableData.value = data[0]
     } else {
       tableData.value = []
     }

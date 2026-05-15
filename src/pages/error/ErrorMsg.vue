@@ -266,8 +266,8 @@ async function fetchData() {
       startTime,
       endTime,
     )
-    const rows = res.data?.data || []
-    total.value = res.data?.total || 0
+    const rows = res.data || []
+    total.value = res.total || 0
     tableData.value = rows.map(normalizeRow)
   } catch (error) {
     console.error("获取错误信息失败:", error)
@@ -364,9 +364,9 @@ async function aggregateChartData(seq) {
     const res = await fetchChartPage(page, params, seq)
     if (seq !== chartFetchSeq || !res) return null
 
-    const rows = res?.data?.data || []
+    const rows = res?.data || []
     if (declaredTotal === null) {
-      const totalFromResponse = Number(res?.data?.total)
+      const totalFromResponse = Number(res?.total)
       declaredTotal = Number.isFinite(totalFromResponse) ? totalFromResponse : null
     }
 

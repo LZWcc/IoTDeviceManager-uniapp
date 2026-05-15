@@ -1,13 +1,13 @@
 import instance from "./request.js"
 
-export const getErrorMsg = (
+export const getErrorMsg = async (
   page,
   pageSize,
   d_no = "",
   startTime = "",
   endTime = "",
 ) => {
-  return instance.get("/api/error", {
+  const response = await instance.get("/api/error", {
     params: {
       page,
       pageSize,
@@ -16,4 +16,5 @@ export const getErrorMsg = (
       endTime,
     },
   })
+  return response.data
 }

@@ -1,22 +1,25 @@
 import instance from "./request.js"
 
-export const getFormatLimit5 = (d_no) => {
-  return instance.get(`/api/format-limit-5/${d_no}`)
+export const getFormatLimit5 = async (d_no) => {
+  const response = await instance.get(`/api/format-limit-5/${d_no}`)
+  return response.data
 }
 
-export const getFormatLimit1ByDevice = (d_no, type = "sensor") => {
-  return instance.get(`/api/format-limit-1/${d_no}`, {
+export const getFormatLimit1ByDevice = async (d_no, type = "sensor") => {
+  const response = await instance.get(`/api/format-limit-1/${d_no}`, {
     params: { type },
   })
+  return response.data
 }
 
-export const getFormatMinuteAvg = (d_no, type = "sensor") => {
-  return instance.get(`/api/format-minute-avg/${d_no}`, {
+export const getFormatMinuteAvg = async (d_no, type = "sensor") => {
+  const response = await instance.get(`/api/format-minute-avg/${d_no}`, {
     params: { type },
   })
+  return response.data
 }
 
-export const getFormatPaged = (
+export const getFormatPaged = async (
   page,
   pageSize,
   d_no = "",
@@ -24,7 +27,7 @@ export const getFormatPaged = (
   endTime = "",
   type = "sensor",
 ) => {
-  return instance.get("/api/format-paged", {
+  const response = await instance.get("/api/format-paged", {
     params: {
       page,
       pageSize,
@@ -34,15 +37,16 @@ export const getFormatPaged = (
       type,
     },
   })
+  return response.data
 }
 
-export const getFormatChart = (
+export const getFormatChart = async (
   d_no = "",
   startTime = "",
   endTime = "",
   type = "sensor",
 ) => {
-  return instance.get("/api/format-chart", {
+  const response = await instance.get("/api/format-chart", {
     params: {
       d_no,
       startTime,
@@ -50,4 +54,5 @@ export const getFormatChart = (
       type,
     },
   })
+  return response.data
 }
