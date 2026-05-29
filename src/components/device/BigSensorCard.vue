@@ -92,6 +92,9 @@ const handleWsData = (data) => {
       item.value = data[item.db_name]
     } else if (item.f_name === "更新时间" && data.timestamp) {
       item.value = formatDate(data.timestamp, "YYYY-MM-DD HH:mm:ss")
+    } else if (item.f_name === "是否在线数据" && data.online !== undefined) {
+      const v = data.online
+      item.value = v === 1 || v === "1" || v === "实时数据" ? "实时数据" : "在线数据"
     }
   })
 }
