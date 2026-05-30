@@ -12,6 +12,11 @@
         <text class="menu-text">错误信息</text>
         <text class="menu-arrow">›</text>
       </view>
+      <view class="menu-item" @click="navigateTo('/pages/settings/Settings')">
+        <text class="menu-icon">⚙️</text>
+        <text class="menu-text">设置</text>
+        <text class="menu-arrow">›</text>
+      </view>
     </view>
 
     <!-- 筛选栏 -->
@@ -368,9 +373,11 @@ export default {
 .menu-item {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  padding: 24rpx 20rpx;
-  margin: 0 10rpx;
+  justify-content: center;
+  padding: 16rpx 8rpx;
+  margin: 0 8rpx;
   border-radius: 20rpx;
   background-color: #fff;
   box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
@@ -386,22 +393,22 @@ export default {
 
 .menu-icon {
   font-size: 36rpx;
-  margin-right: 16rpx;
+  margin-bottom: 8rpx;
 }
 
 .menu-text {
-  flex: 1;
-  font-size: 30rpx;
+  font-size: 26rpx;
   color: #333;
+  white-space: nowrap;
 }
 
 .menu-arrow {
-  font-size: 36rpx;
-  color: #999;
+  display: none;
 }
 
 .menu-badge {
-  font-size: 22rpx;
+  margin-top: 6rpx;
+  font-size: 20rpx;
   color: #2979ff;
   padding: 4rpx 12rpx;
   background-color: #e3f2fd;
