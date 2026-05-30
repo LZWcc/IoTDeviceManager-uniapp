@@ -5,6 +5,7 @@
  * @returns {string} 格式化后的日期字符串
  */
 export function formatDate(date, format = "YYYY-MM-DD HH:mm:ss") {
+  if (typeof date === "string") date = date.replace(/-/g, "/")
   const d = new Date(date)
 
   if (isNaN(d.getTime())) {

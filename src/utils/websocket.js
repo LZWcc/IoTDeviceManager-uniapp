@@ -70,7 +70,7 @@ class WebSocketClient {
           const callbacks = this.listeners.get(type)
           const payload =
             data && typeof data === "object"
-              ? { ...data, timestamp }
+              ? { timestamp, ...data }
               : { data, timestamp }
           callbacks.forEach((cb) => cb(payload))
         }
