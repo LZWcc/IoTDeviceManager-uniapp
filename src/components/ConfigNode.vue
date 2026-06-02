@@ -53,6 +53,31 @@
             />
             <text class="slider-max">{{ node.max }}</text>
           </view>
+
+          <!-- f_type 4: 时间框 -->
+          <view v-else-if="node.f_type === '4'" class="control-row">
+            <picker mode="time" :value="node.value || ''" @change="onTimeChange">
+              <view class="time-display">{{ node.value || "请选择时间" }}</view>
+            </picker>
+          </view>
+
+          <!-- f_type 5: 单选框 -->
+          <view v-else-if="node.f_type === '5'" class="control-row radio-row">
+            <radio-group @change="onRadioChange">
+              <label
+                v-for="(opt, i) in node.f_value"
+                :key="i"
+                class="radio-item"
+              >
+                <radio
+                  :value="opt.value"
+                  :checked="node.value === opt.value"
+                  color="#13ce66"
+                />
+                <text class="radio-label">{{ opt.label }}</text>
+              </label>
+            </radio-group>
+          </view>
         </view>
 
         <!-- 递归渲染可见子节点 -->
@@ -130,6 +155,15 @@ export default {
     },
 
     onSliderChange(e) {
+      this.node.value = e.detail.value
+    },
+
+    onTimeChange(e) {
+      const value = e.detail.value
+      this.node.value = value && value.length === 5 ? `${value}:00` : value
+    },
+
+    onRadioChange(e) {
       this.node.value = e.detail.value
     },
   },
@@ -285,5 +319,32 @@ export default {
   flex: 1;
   min-width: 0;
   padding-top: 8rpx;
+}
+
+/* ── f_type 4 时间框 / 5 单选 ── */
+.time-display {
+  flex: 1;
+  height: 72rpx;
+  line-height: 72rpx;
+  padding: 0 20rpx;
+  border: 1rpx solid #dcdfe6;
+  border-radius: 8rpx;
+  font-size: 28rpx;
+  color: #303133;
+  background-color: #fff;
+}
+.radio-row {
+  flex-wrap: wrap;
+}
+.radio-item {
+  display: flex;
+  align-items: center;
+  margin-right: 32rpx;
+  margin-bottom: 8rpx;
+}
+.radio-label {
+  font-size: 26rpx;
+  color: #606266;
+  margin-left: 8rpx;
 }
 </style>

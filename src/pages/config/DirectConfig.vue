@@ -124,6 +124,7 @@ import {
   collectConfigValues,
   getChangedConfigValues,
   isValidConfigValue,
+  normalizeConfigValueForSubmit,
 } from "@/utils/directConfigTree"
 
 // 简易 debounce
@@ -268,7 +269,8 @@ export default {
         )
         if (validValues.length === 0) return
 
-        await saveDirectConfig(validValues, d_no)
+        const valuesToSave = validValues.map(normalizeConfigValueForSubmit)
+        await saveDirectConfig(valuesToSave, d_no)
         this.updateConfigSnapshot(isGlobal, configList)
         this.showAutoSaveToast(isGlobal, d_no, validValues.length)
       } catch (error) {

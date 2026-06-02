@@ -73,3 +73,14 @@ export function getChangedConfigValues(currentValues, snapshot) {
 export function isValidConfigValue(item) {
   return item.value !== null && item.value !== undefined && item.value !== ""
 }
+
+export function normalizeConfigValueForSubmit(item) {
+  let value = item.value
+  if (item.f_type === "2" || item.f_type === "3") {
+    const intValue = parseInt(value, 10)
+    if (Number.isFinite(intValue)) {
+      value = intValue
+    }
+  }
+  return { ...item, value }
+}
