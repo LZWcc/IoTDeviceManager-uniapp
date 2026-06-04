@@ -106,6 +106,41 @@
         </view>
       </view>
     </view>
+
+    <!-- 全局同步时间弹窗 -->
+    <view v-if="syncTimeModalVisible" class="modal-mask" @click.self="syncTimeModalVisible = false">
+      <view class="modal-content">
+        <view class="modal-title">
+          <text>全局同步时间</text>
+        </view>
+        <view class="modal-body">
+          <view class="switch-row">
+            <text :class="useCurrentTime ? 'switch-label-active' : 'switch-label'">当前时间</text>
+            <switch :checked="useCurrentTime" @change="useCurrentTime = !useCurrentTime" />
+            <text :class="!useCurrentTime ? 'switch-label-active' : 'switch-label'">指定时间</text>
+          </view>
+          <view v-if="!useCurrentTime" class="time-picker-row">
+            <picker mode="time" :value="customTime" @change="onTimePickerChange">
+              <view class="time-picker-btn">
+                <text>{{ customTime || '选择时间' }}</text>
+              </view>
+            </picker>
+          </view>
+        </view>
+        <view class="modal-footer">
+          <view class="modal-btn modal-btn-cancel" @click="syncTimeModalVisible = false">
+            <text>取消</text>
+          </view>
+          <view
+            class="modal-btn modal-btn-confirm"
+            :class="{ 'sync-time-button-disabled': isSyncingGlobalTime }"
+            @click="confirmSyncTime"
+          >
+            <text>{{ isSyncingGlobalTime ? "下发中..." : "确认下发" }}</text>
+          </view>
+        </view>
+      </view>
+    </view>
   </scroll-view>
 </template>
 
@@ -155,6 +190,9 @@ export default {
       isGlobalSaving: false,
       isDeviceSaving: false,
       isSyncingGlobalTime: false,
+      syncTimeModalVisible: false,
+      useCurrentTime: true,
+      customTime: "00:00:00",
     }
   },
 
@@ -290,16 +328,26 @@ export default {
       }
     },
 
-    async handleSyncGlobalTime() {
+    handleSyncGlobalTime() {
       if (this.isSyncingGlobalTime) return
+      this.syncTimeModalVisible = true
+    },
+
+    onTimePickerChange(e) {
+      this.customTime = e.detail.value
+    },
+
+    async confirmSyncTime() {
       this.isSyncingGlobalTime = true
       try {
-        const response = await syncGlobalTime()
+        const time = this.useCurrentTime ? undefined : this.customTime
+        const response = await syncGlobalTime(time)
         uni.showToast({
           title: response?.message || "全局时间同步指令已下发",
           icon: "success",
           duration: 2000,
         })
+        this.syncTimeModalVisible = false
       } catch (error) {
         console.error("全局同步时间失败:", error)
         const message =
@@ -505,5 +553,108 @@ export default {
 .empty-text {
   font-size: 28rpx;
   color: #c0c4cc;
+}
+
+/* 同步时间弹窗 */
+.modal-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.modal-content {
+  width: 600rpx;
+  background-color: #fff;
+  border-radius: 24rpx;
+  overflow: hidden;
+}
+
+.modal-title {
+  padding: 32rpx;
+  text-align: center;
+  border-bottom: 1rpx solid #eee;
+}
+
+.modal-title text {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: #303133;
+}
+
+.modal-body {
+  padding: 32rpx;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20rpx;
+  margin-bottom: 24rpx;
+}
+
+.switch-label {
+  font-size: 28rpx;
+  color: #c0c4cc;
+}
+
+.switch-label-active {
+  font-size: 28rpx;
+  color: #303133;
+  font-weight: bold;
+}
+
+.time-picker-row {
+  display: flex;
+  justify-content: center;
+}
+
+.time-picker-btn {
+  background-color: #f5f7fa;
+  border: 1rpx solid #dcdfe6;
+  border-radius: 12rpx;
+  padding: 20rpx 48rpx;
+}
+
+.time-picker-btn text {
+  font-size: 32rpx;
+  color: #303133;
+}
+
+.modal-footer {
+  display: flex;
+  border-top: 1rpx solid #eee;
+}
+
+.modal-btn {
+  flex: 1;
+  padding: 28rpx 0;
+  text-align: center;
+}
+
+.modal-btn-cancel {
+  border-right: 1rpx solid #eee;
+}
+
+.modal-btn-cancel text {
+  font-size: 30rpx;
+  color: #909399;
+}
+
+.modal-btn-confirm {
+  background-color: #2979ff;
+}
+
+.modal-btn-confirm text {
+  font-size: 30rpx;
+  color: #fff;
+  font-weight: bold;
 }
 </style>
