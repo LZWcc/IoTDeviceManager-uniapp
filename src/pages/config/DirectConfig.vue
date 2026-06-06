@@ -14,6 +14,20 @@
               isSyncingGlobalTime ? "同步中..." : "全局同步时间"
             }}</text>
           </view>
+          <view class="mode-toggle" @click="globalIsAuto = !globalIsAuto">
+            <text class="mode-label" :class="{ 'mode-active': !globalIsAuto }"
+              >手动</text
+            >
+            <view class="toggle-track" :class="{ 'toggle-on': globalIsAuto }">
+              <view
+                class="toggle-thumb"
+                :class="{ 'thumb-on': globalIsAuto }"
+              ></view>
+            </view>
+            <text class="mode-label" :class="{ 'mode-active': globalIsAuto }"
+              >自动</text
+            >
+          </view>
         </view>
       </view>
 
@@ -21,13 +35,16 @@
         <view v-if="globalConfigList.length === 0" class="loading-text">
           <text>加载中...</text>
         </view>
-        <view v-else>
+        <view v-else-if="globalIsAuto">
           <ConfigNode
             v-for="(item, index) in globalConfigList"
             :key="index"
             :node="item"
             :level="0"
           />
+        </view>
+        <view v-else class="manual-hint">
+          <text>当前为手动模式</text>
         </view>
       </view>
     </view>
@@ -52,6 +69,20 @@
       <view class="config-card">
         <view class="card-header">
           <text class="card-title">📱 设备配置</text>
+          <view class="mode-toggle" @click="deviceIsAuto = !deviceIsAuto">
+            <text class="mode-label" :class="{ 'mode-active': !deviceIsAuto }"
+              >手动</text
+            >
+            <view class="toggle-track" :class="{ 'toggle-on': deviceIsAuto }">
+              <view
+                class="toggle-thumb"
+                :class="{ 'thumb-on': deviceIsAuto }"
+              ></view>
+            </view>
+            <text class="mode-label" :class="{ 'mode-active': deviceIsAuto }"
+              >自动</text
+            >
+          </view>
         </view>
 
         <view class="card-body">
@@ -61,13 +92,16 @@
           <view v-else-if="deviceConfigList.length === 0" class="loading-text">
             <text>加载中...</text>
           </view>
-          <view v-else>
+          <view v-else-if="deviceIsAuto">
             <ConfigNode
               v-for="(item, index) in deviceConfigList"
               :key="index"
               :node="item"
               :level="0"
             />
+          </view>
+          <view v-else class="manual-hint">
+            <text>当前为手动模式</text>
           </view>
         </view>
       </view>
@@ -143,7 +177,9 @@ export default {
   data() {
     return {
       globalConfigList: [],
+      globalIsAuto: true,
       deviceConfigList: [],
+      deviceIsAuto: true,
       globalInitLock: true,
       deviceInitLock: true,
       globalConfigSnapshot: null,
