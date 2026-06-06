@@ -35,17 +35,19 @@
         <view v-if="globalConfigList.length === 0" class="loading-text">
           <text>加载中...</text>
         </view>
-        <view v-else-if="globalIsAuto">
-          <ConfigNode
-            v-for="(item, index) in globalConfigList"
-            :key="index"
-            :node="item"
-            :level="0"
-          />
-        </view>
-        <view v-else class="manual-hint">
-          <text>当前为手动模式</text>
-        </view>
+        <block v-else>
+          <view v-if="globalIsAuto">
+            <ConfigNode
+              v-for="(item, index) in globalConfigList"
+              :key="index"
+              :node="item"
+              :level="0"
+            />
+          </view>
+          <view v-else class="manual-hint">
+            <text>当前为手动模式</text>
+          </view>
+        </block>
       </view>
     </view>
 
@@ -92,17 +94,19 @@
           <view v-else-if="deviceConfigList.length === 0" class="loading-text">
             <text>加载中...</text>
           </view>
-          <view v-else-if="deviceIsAuto">
-            <ConfigNode
-              v-for="(item, index) in deviceConfigList"
-              :key="index"
-              :node="item"
-              :level="0"
-            />
-          </view>
-          <view v-else class="manual-hint">
-            <text>当前为手动模式</text>
-          </view>
+          <block v-else>
+            <view v-if="deviceIsAuto">
+              <ConfigNode
+                v-for="(item, index) in deviceConfigList"
+                :key="index"
+                :node="item"
+                :level="0"
+              />
+            </view>
+            <view v-else class="manual-hint">
+              <text>当前为手动模式</text>
+            </view>
+          </block>
         </view>
       </view>
     </view>
