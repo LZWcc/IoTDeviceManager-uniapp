@@ -37,7 +37,7 @@ export function createValueAxisConfig(
   series,
   { forceZeroMin = false, fixedMax = null } = {},
 ) {
-  const numericFixedMax = Number(fixedMax)
+  const numericFixedMax = fixedMax != null ? Number(fixedMax) : NaN
   const hasFixedMax = Number.isFinite(numericFixedMax)
   const values = (series || [])
     .flatMap((item) => item.data || [])

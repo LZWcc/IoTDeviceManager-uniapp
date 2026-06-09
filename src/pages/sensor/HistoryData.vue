@@ -53,6 +53,22 @@
         />
       </view>
 
+
+      <view class="filter-item">
+        <text class="filter-label">数据来源</text>
+        <picker
+          mode="selector"
+          :range="onlineOptions"
+          range-key="label"
+          :value="onlinePickerIndex"
+          @change="onOnlineFilterChange"
+        >
+          <view class="filter-input">
+            <text :class="{ 'placeholder-text': !onlineFilter }">{{ onlineFilter || '全部' }}</text>
+          </view>
+        </picker>
+      </view>
+
       <view class="filter-actions">
         <button class="query-btn" @click="onFilter">查询</button>
         <button class="reset-btn" @click="onReset">重置</button>
@@ -238,6 +254,10 @@ const {
   onDeviceInput,
   onEndDateTimeChange,
   onFilter,
+  onlineFilter,
+  onlineOptions,
+  onlinePickerIndex,
+  onOnlineFilterChange,
   onPageSizeChange,
   onReset,
   onStartDateTimeChange,
@@ -618,5 +638,8 @@ const {
   margin-left: 12rpx;
   color: #999;
   font-size: 20rpx;
+}
+.placeholder-text {
+  color: #999;
 }
 </style>

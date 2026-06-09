@@ -12,6 +12,11 @@ import wsClient from "@/utils/websocket"
 import { navigateToPage } from "@/utils/navigation"
 
 const pageSizes = [5, 10, 20, 50, 100]
+const onlineOptions = [
+  { label: "全部", value: "" },
+  { label: "实时数据", value: "实时数据" },
+  { label: "保存数据", value: "保存数据" },
+]
 const chartModeOptions = [
   { label: "趋势总览", value: "range" },
   { label: "当前页明细", value: "page" },
@@ -24,7 +29,7 @@ const CHART_REFRESH_INTERVAL = 10000
 const HISTORY_REFRESH_DEBOUNCE = 400
 const MAX_CHART_POINTS_MOBILE = 120
 const MAX_CHART_POINTS_DESKTOP = 200
-const CHART_AXIS_MAX = 100
+const CHART_AXIS_MAX = null
 const PAGE_CHART_EXCLUDED_FIELDS = new Set([
   "设备编号",
   "是否在线数据",
@@ -35,6 +40,7 @@ export function useHistoryChartView({ type }) {
   const d_no = ref("")
   const startDateTime = ref("")
   const endDateTime = ref("")
+  const onlineFilter = ref("")
   const tableData = ref([])
   const tableHeader = ref([])
   const total = ref(0)
@@ -156,6 +162,7 @@ export function useHistoryChartView({ type }) {
         startDateTime.value,
         endDateTime.value,
         type,
+        onlineFilter.value,
       )
       applyTableResponse(normalizeTableResponse(res))
     } catch (error) {
@@ -232,6 +239,7 @@ export function useHistoryChartView({ type }) {
         startDateTime.value,
         endDateTime.value,
         type,
+        onlineFilter.value,
       )
       applyChartResponse(normalizeChartResponse(res), requestId)
     } catch (error) {
@@ -350,6 +358,15 @@ export function useHistoryChartView({ type }) {
     return new Date(year, month - 1, day, hour, minute, second)
   }
 
+  const onlinePickerIndex = computed(() => {
+    const idx = onlineOptions.findIndex((o) => o.value === onlineFilter.value)
+    return idx >= 0 ? idx : 0
+  })
+
+  function onOnlineFilterChange(e) {
+    onlineFilter.value = onlineOptions[e.detail.value].value
+  }
+
   async function onFilter() {
     if (!appStore.value.settings.showDeviceFeatures) {
       d_no.value = ""
@@ -366,6 +383,7 @@ export function useHistoryChartView({ type }) {
     d_no.value = ""
     startDateTime.value = ""
     endDateTime.value = ""
+    onlineFilter.value = ""
     currentPage.value = 1
     await fetchData()
     if (chartDataMode.value === "range") {
@@ -540,6 +558,10 @@ export function useHistoryChartView({ type }) {
     onDeviceInput,
     onEndDateTimeChange,
     onFilter,
+    onlineFilter,
+    onlineOptions,
+    onlinePickerIndex,
+    onOnlineFilterChange,
     onPageSizeChange,
     onReset,
     onStartDateTimeChange,

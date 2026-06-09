@@ -26,6 +26,7 @@ export const getFormatPaged = async (
   startTime = "",
   endTime = "",
   type = "sensor",
+  online = "",
 ) => {
   const response = await instance.get("/api/format-paged", {
     params: {
@@ -35,6 +36,7 @@ export const getFormatPaged = async (
       startTime,
       endTime,
       type,
+      online,
     },
   })
   return response.data
@@ -45,6 +47,7 @@ export const getFormatChart = async (
   startTime = "",
   endTime = "",
   type = "sensor",
+  online = "",
 ) => {
   const response = await instance.get("/api/format-chart", {
     params: {
@@ -52,6 +55,7 @@ export const getFormatChart = async (
       startTime,
       endTime,
       type,
+      online,
     },
   })
   return response.data

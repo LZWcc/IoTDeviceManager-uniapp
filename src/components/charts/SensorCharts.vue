@@ -53,7 +53,7 @@ const chartTypes = [
   { label: "折线图", value: "line" },
   { label: "柱状图", value: "bar" },
 ]
-const CHART_AXIS_MAX = 100
+const CHART_AXIS_MAX = null
 
 const tableMap = {
   sensor: "Sensor",
