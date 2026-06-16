@@ -83,6 +83,11 @@
             <text :class="!useCurrentTime ? 'switch-label-active' : 'switch-label'">指定时间</text>
           </view>
           <view v-if="!useCurrentTime" class="time-picker-row">
+            <picker mode="date" :value="customDate" @change="onDatePickerChange">
+              <view class="time-picker-btn">
+                <text>{{ customDate || '选择日期' }}</text>
+              </view>
+            </picker>
             <picker mode="time" :value="customTime" @change="onTimePickerChange">
               <view class="time-picker-btn">
                 <text>{{ customTime || '选择时间' }}</text>
@@ -125,6 +130,19 @@ import {
   normalizeConfigValueForSubmit,
 } from "@/utils/directConfigTree"
 
+function getTodayDateText() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, "0")
+  const day = String(now.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function normalizeTimeText(time) {
+  const safe = String(time || "00:00")
+  return safe.length === 5 ? `${safe}:00` : safe
+}
+
 // 简易 debounce
 function debounce(fn, delay) {
   let timer = null
@@ -153,6 +171,7 @@ export default {
       isSyncingGlobalTime: false,
       syncTimeModalVisible: false,
       useCurrentTime: true,
+      customDate: getTodayDateText(),
       customTime: "00:00:00",
     }
   },
@@ -291,7 +310,12 @@ export default {
 
     handleSyncGlobalTime() {
       if (this.isSyncingGlobalTime) return
+      if (!this.customDate) this.customDate = getTodayDateText()
       this.syncTimeModalVisible = true
+    },
+
+    onDatePickerChange(e) {
+      this.customDate = e.detail.value
     },
 
     onTimePickerChange(e) {
@@ -301,7 +325,9 @@ export default {
     async confirmSyncTime() {
       this.isSyncingGlobalTime = true
       try {
-        const time = this.useCurrentTime ? undefined : this.customTime
+        const time = this.useCurrentTime
+          ? undefined
+          : `${this.customDate || getTodayDateText()} ${normalizeTimeText(this.customTime)}`
         const response = await syncGlobalTime(time)
         uni.showToast({
           title: response?.message || "全局时间同步指令已下发",
@@ -574,7 +600,9 @@ export default {
 
 .time-picker-row {
   display: flex;
+  flex-direction: column;
   justify-content: center;
+  gap: 16rpx;
 }
 
 .time-picker-btn {
@@ -582,6 +610,7 @@ export default {
   border: 1rpx solid #dcdfe6;
   border-radius: 12rpx;
   padding: 20rpx 48rpx;
+  text-align: center;
 }
 
 .time-picker-btn text {
