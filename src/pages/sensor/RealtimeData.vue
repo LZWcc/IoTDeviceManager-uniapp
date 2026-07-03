@@ -49,7 +49,7 @@
 import { ref, onMounted } from "vue"
 import BigSensorCard from "../../components/device/BigSensorCard.vue"
 import SensorCharts from "../../components/charts/SensorCharts.vue"
-import { getDeviceList } from "@/api/get_deviceList"
+import { getDeviceList } from "@/api/data"
 import { appStore } from "@/stores/index"
 import { navigateToPage } from "@/utils/navigation"
 

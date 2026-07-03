@@ -30,7 +30,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import UChartCanvas from "@/components/charts/UChartCanvas.vue"
-import { getFormatMinuteAvg } from "@/api/get_format_limit"
+import { getFormatMinuteAvg } from "@/api/data"
 import { appStore } from "@/stores/index"
 import { formatDate } from "@/utils/index"
 import { createValueAxisConfig, normalizeChartSeries } from "@/utils/ucharts"

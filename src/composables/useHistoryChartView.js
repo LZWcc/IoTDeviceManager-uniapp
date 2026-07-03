@@ -1,5 +1,5 @@
 import { computed, onMounted, onUnmounted, ref, shallowRef } from "vue"
-import { getFormatChart, getFormatPaged } from "@/api/get_format_limit"
+import { getFormatChart, getFormatPaged } from "@/api/data"
 import { appStore } from "@/stores/index"
 import {
   alignChartDataToCategories,

@@ -116,9 +116,9 @@
 import {
   getDirectConfig,
   saveDirectConfig,
-  getDeviceList,
+  getConfigDeviceList,
   syncGlobalTime,
-} from "@/api/get_direct_config"
+} from "@/api/config"
 import ConfigNode from "@/components/ConfigNode.vue"
 import { appStore } from "@/stores/index"
 import {
@@ -302,7 +302,7 @@ export default {
     // 获取设备列表
     async fetchDeviceList() {
       try {
-        this.deviceList = await getDeviceList()
+        this.deviceList = await getConfigDeviceList()
       } catch (error) {
         console.error("获取设备列表失败:", error)
       }

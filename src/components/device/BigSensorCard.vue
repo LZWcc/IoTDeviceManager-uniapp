@@ -27,7 +27,7 @@
 
 <script setup>
 import { ref, watch, computed, onMounted, onUnmounted } from "vue"
-import { getFormatLimit1ByDevice } from "@/api/get_format_limit"
+import { getFormatLimit1ByDevice } from "@/api/data"
 import { appStore } from "@/stores/index"
 import wsClient from "@/utils/websocket"
 import { formatDate } from "@/utils/index"

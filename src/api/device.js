@@ -2,9 +2,7 @@ import instance from "./request.js"
 
 export async function getDevice(keyword = "") {
   const response = await instance.get("/api/device", {
-    params: {
-      keyword,
-    },
+    params: { keyword },
   })
   return response.data
 }
@@ -15,7 +13,7 @@ export async function deleteDevice(id) {
 }
 
 export async function addDevice(params) {
-  const response = await instance.post(`/api/device`, params)
+  const response = await instance.post("/api/device", params)
   return response.data
 }
 
