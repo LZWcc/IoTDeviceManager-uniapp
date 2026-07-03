@@ -20,8 +20,9 @@
       <view class="field">
         <text class="row-label">API 地址</text>
         <input
-          class="input"
-          v-model="apiBaseUrl"
+          class="field-input"
+          :value="apiBaseUrl"
+          @input="apiBaseUrl = $event.detail.value"
           placeholder="如 https://uni.iot.lzwcc.xyz"
         />
       </view>
@@ -41,7 +42,9 @@
   </view>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from "vue"
+import { onLoad } from "@dcloudio/uni-app"
 import { appStore } from "@/stores/index"
 import {
   getServerConfigOverride,
@@ -50,47 +53,40 @@ import {
   resetServerConfigOverride,
 } from "@/config/runtime"
 
-export default {
-  data() {
-    return {
-      apiBaseUrl: "",
-      effective: { apiBaseUrl: "", wsBaseUrl: "" },
-    }
-  },
-  computed: {
-    showDeviceFeatures() {
-      return appStore.value.settings.showDeviceFeatures
-    },
-  },
-  onLoad() {
-    this.apiBaseUrl = getServerConfigOverride().apiBaseUrl
-    this.effective = getEffectiveServerConfig()
-  },
-  methods: {
-    onToggleDeviceFeatures(e) {
-      appStore.value.updateSettings({ showDeviceFeatures: e.detail.value })
-      uni.showToast({ title: "已更新", icon: "none" })
-    },
-    onSave() {
-      setServerConfigOverride({ apiBaseUrl: this.apiBaseUrl })
-      this.effective = getEffectiveServerConfig()
-      uni.showModal({
-        title: "已保存",
-        content: "后端地址已更新, 重启 App / 刷新页面后生效。",
-        showCancel: false,
-      })
-    },
-    onReset() {
-      resetServerConfigOverride()
-      this.apiBaseUrl = ""
-      this.effective = getEffectiveServerConfig()
-      uni.showModal({
-        title: "已恢复默认",
-        content: "已清除自定义地址, 重启 App / 刷新页面后生效。",
-        showCancel: false,
-      })
-    },
-  },
+const apiBaseUrl = ref("")
+const effective = ref({ apiBaseUrl: "", wsBaseUrl: "" })
+
+const showDeviceFeatures = computed(() => appStore.value.settings.showDeviceFeatures)
+
+onLoad(() => {
+  apiBaseUrl.value = getServerConfigOverride().apiBaseUrl
+  effective.value = getEffectiveServerConfig()
+})
+
+function onToggleDeviceFeatures(e) {
+  appStore.value.updateSettings({ showDeviceFeatures: e.detail.value })
+  uni.showToast({ title: "已更新", icon: "none" })
+}
+
+function onSave() {
+  setServerConfigOverride({ apiBaseUrl: apiBaseUrl.value })
+  effective.value = getEffectiveServerConfig()
+  uni.showModal({
+    title: "已保存",
+    content: "后端地址已更新, 重启 App / 刷新页面后生效。",
+    showCancel: false,
+  })
+}
+
+function onReset() {
+  resetServerConfigOverride()
+  apiBaseUrl.value = ""
+  effective.value = getEffectiveServerConfig()
+  uni.showModal({
+    title: "已恢复默认",
+    content: "已清除自定义地址, 重启 App / 刷新页面后生效。",
+    showCancel: false,
+  })
 }
 </script>
 
@@ -133,14 +129,36 @@ export default {
 .field {
   margin-top: 8rpx;
 }
-.input {
+.field-input {
+  width: 100%;
+  min-height: 76rpx;
   margin-top: 12rpx;
   border: 1rpx solid #dddddd;
   border-radius: 8rpx;
-  padding: 16rpx 20rpx;
+  padding: 0 20rpx;
   font-size: 28rpx;
   background: #fafafa;
+  box-sizing: border-box;
 }
+
+.field-input :deep(.uni-input-wrapper) {
+  width: 100%;
+  min-height: 76rpx;
+  display: flex;
+  align-items: center;
+}
+
+.field-input :deep(.uni-input-input),
+.field-input :deep(input) {
+  width: 100%;
+  min-height: 76rpx;
+  height: 76rpx;
+  line-height: 76rpx;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .current {
   margin-top: 16rpx;
   padding: 16rpx 20rpx;
