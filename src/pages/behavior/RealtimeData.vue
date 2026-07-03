@@ -1,21 +1,9 @@
 <template>
   <view class="page">
-    <!-- 导航菜单 -->
-    <view class="menu-list">
-      <view class="menu-item current">
-        <text class="menu-icon">📊</text>
-        <text class="menu-text">实时数据</text>
-        <text class="menu-badge">当前页</text>
-      </view>
-      <view
-        class="menu-item"
-        @click="navigateTo('/pages/behavior/HistoryData')"
-      >
-        <text class="menu-icon">📈</text>
-        <text class="menu-text">历史数据</text>
-        <text class="menu-arrow">›</text>
-      </view>
-    </view>
+    <MenuNav :items="[
+      { icon: '📊', label: '实时数据', current: true },
+      { icon: '📈', label: '历史数据', url: '/pages/behavior/HistoryData' },
+    ]" />
 
     <!-- 设备选择器 -->
     <view class="header" v-if="appStore.settings.showDeviceFeatures">
@@ -54,7 +42,7 @@ import BigSensorCard from "../../components/device/BigSensorCard.vue"
 import SensorCharts from "../../components/charts/SensorCharts.vue"
 import { getDeviceList } from "@/api/data"
 import { appStore } from "@/stores/index"
-import { navigateToPage } from "@/utils/navigation"
+import MenuNav from "@/components/MenuNav.vue"
 
 const selectedDevice = ref("")
 const selectedDeviceIndex = ref(0)
@@ -92,9 +80,6 @@ function onDeviceChange(e) {
   selectedDevice.value = deviceList.value[index]
 }
 
-function navigateTo(url) {
-  navigateToPage(url)
-}
 </script>
 
 <style scoped>
@@ -134,57 +119,6 @@ function navigateTo(url) {
 .picker-arrow {
   font-size: 24rpx;
   color: #999;
-}
-
-.menu-list {
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
-  margin: 20rpx;
-  background-color: #fff;
-}
-
-.menu-item {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  padding: 30rpx 20rpx;
-  margin: 0 10rpx;
-  border-radius: 20rpx;
-  background-color: #fff;
-  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
-}
-
-.menu-item:not(.current):active {
-  background-color: #f5f5f5;
-}
-
-.menu-item.current {
-  background-color: #f0f7ff;
-}
-
-.menu-icon {
-  font-size: 40rpx;
-  margin-right: 20rpx;
-}
-
-.menu-text {
-  flex: 1;
-  font-size: 32rpx;
-  color: #333;
-}
-
-.menu-arrow {
-  font-size: 40rpx;
-  color: #999;
-}
-
-.menu-badge {
-  font-size: 24rpx;
-  color: #2979ff;
-  padding: 4rpx 12rpx;
-  background-color: #e3f2fd;
-  border-radius: 20rpx;
 }
 
 /* 组件包装器 */

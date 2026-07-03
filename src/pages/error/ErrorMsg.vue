@@ -1,18 +1,9 @@
 <template>
   <view class="page">
-    <!-- 导航菜单 -->
-    <view class="menu-list">
-      <view class="menu-item" @click="navigateTo('/pages/device/DeviceManage')">
-        <text class="menu-icon">🗂️</text>
-        <text class="menu-text">设备管理</text>
-        <text class="menu-arrow">›</text>
-      </view>
-      <view class="menu-item current">
-        <text class="menu-icon">⚠️</text>
-        <text class="menu-text">错误信息</text>
-        <text class="menu-badge">当前页</text>
-      </view>
-    </view>
+    <MenuNav :items="[
+      { icon: '🗂️', label: '设备管理', url: '/pages/device/DeviceManage' },
+      { icon: '⚠️', label: '错误信息', current: true },
+    ]" />
 
     <view class="filter-wrapper">
       <view class="filter-item" v-if="showDeviceFeatures">
@@ -159,7 +150,7 @@ import { getErrorMsg } from "@/api/error"
 import { appStore } from "@/stores/index"
 import { formatDate } from "@/utils/index"
 import wsClient from "@/utils/websocket"
-import { navigateToPage } from "@/utils/navigation"
+import MenuNav from "@/components/MenuNav.vue"
 import UChartCanvas from "@/components/charts/UChartCanvas.vue"
 import DateTimePickerField from "@/components/DateTimePickerField.vue"
 import { isWithinDateTimeRange } from "@/utils/dateTimeRange"
@@ -223,10 +214,6 @@ onUnmounted(() => {
   // 作废正在进行的汇总请求，防止异步回调写入已卸载页面的 ref
   chartFetchSeq += 1
 })
-
-function navigateTo(url) {
-  navigateToPage(url)
-}
 
 function normalizeRow(data) {
   const typeName =
@@ -467,61 +454,6 @@ function tagClass(type) {
   background: #f5f6f8;
   padding: 24rpx;
   box-sizing: border-box;
-}
-
-/* 顶部导航菜单，与实时 / 历史页风格一致 */
-.menu-list {
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
-  margin-bottom: 20rpx;
-}
-
-.menu-item {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  padding: 24rpx 20rpx;
-  margin-right: 16rpx;
-  border-radius: 20rpx;
-  background-color: #fff;
-  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.08);
-}
-
-.menu-item:last-child {
-  margin-right: 0;
-}
-
-.menu-item:not(.current):active {
-  background-color: #f1f5f9;
-}
-
-.menu-item.current {
-  background-color: #fff7ed;
-}
-
-.menu-icon {
-  font-size: 36rpx;
-  margin-right: 16rpx;
-}
-
-.menu-text {
-  flex: 1;
-  font-size: 30rpx;
-  color: #333;
-}
-
-.menu-arrow {
-  font-size: 36rpx;
-  color: #999;
-}
-
-.menu-badge {
-  font-size: 22rpx;
-  color: #b45309;
-  padding: 4rpx 12rpx;
-  background-color: #fef3c7;
-  border-radius: 20rpx;
 }
 
 .chart-wrapper {

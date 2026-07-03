@@ -1,17 +1,9 @@
 <template>
   <view class="page">
-    <view class="menu-list">
-      <view class="menu-item" @click="navigateToPage('/pages/sensor/RealtimeData')">
-        <text class="menu-icon">📊</text>
-        <text class="menu-text">实时数据</text>
-        <text class="menu-arrow">›</text>
-      </view>
-      <view class="menu-item current">
-        <text class="menu-icon">📈</text>
-        <text class="menu-text">历史数据</text>
-        <text class="menu-badge">当前页</text>
-      </view>
-    </view>
+    <MenuNav :items="[
+      { icon: '📊', label: '实时数据', url: '/pages/sensor/RealtimeData' },
+      { icon: '📈', label: '历史数据', current: true },
+    ]" />
 
     <view class="filter-wrapper">
       <view
@@ -52,7 +44,6 @@
           @update:endValue="onEndDateTimeChange"
         />
       </view>
-
 
       <view class="filter-item">
         <text class="filter-label">数据来源</text>
@@ -230,6 +221,7 @@
 <script setup>
 import DateTimePickerField from "@/components/DateTimePickerField.vue"
 import UChartCanvas from "@/components/charts/UChartCanvas.vue"
+import MenuNav from "@/components/MenuNav.vue"
 import { useHistoryChartView } from "@/composables/useHistoryChartView"
 
 const {
@@ -247,7 +239,6 @@ const {
   endDateTime,
   filteredTableHeader,
   formattedTableData,
-  navigateToPage,
   nextPage,
   onChartModeChange,
   onChartTypeChange,
@@ -279,57 +270,6 @@ const {
   background-color: #f5f5f5;
   padding-bottom: 40rpx;
   position: relative;
-}
-
-.menu-list {
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
-  margin: 20rpx;
-  background-color: #fff;
-}
-
-.menu-item {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  padding: 30rpx 20rpx;
-  margin: 0 10rpx;
-  border-radius: 20rpx;
-  background-color: #fff;
-  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
-}
-
-.menu-item:not(.current):active {
-  background-color: #f5f5f5;
-}
-
-.menu-item.current {
-  background-color: #f0f7ff;
-}
-
-.menu-icon {
-  font-size: 40rpx;
-  margin-right: 20rpx;
-}
-
-.menu-text {
-  flex: 1;
-  font-size: 32rpx;
-  color: #333;
-}
-
-.menu-arrow {
-  font-size: 40rpx;
-  color: #999;
-}
-
-.menu-badge {
-  font-size: 24rpx;
-  color: #2979ff;
-  padding: 4rpx 12rpx;
-  background-color: #e3f2fd;
-  border-radius: 20rpx;
 }
 
 .filter-wrapper {
@@ -405,7 +345,6 @@ const {
 .datetime-native-input :deep(input) {
   cursor: pointer;
 }
-
 
 .filter-actions {
   display: flex;

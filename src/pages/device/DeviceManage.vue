@@ -1,23 +1,10 @@
 <template>
   <view class="page">
-    <!-- 导航菜单 -->
-    <view class="menu-list">
-      <view class="menu-item current">
-        <text class="menu-icon">🗂️</text>
-        <text class="menu-text">设备管理</text>
-        <text class="menu-badge">当前页</text>
-      </view>
-      <view class="menu-item" @click="navigateTo('/pages/error/ErrorMsg')">
-        <text class="menu-icon">⚠️</text>
-        <text class="menu-text">错误信息</text>
-        <text class="menu-arrow">›</text>
-      </view>
-      <view class="menu-item" @click="navigateTo('/pages/settings/Settings')">
-        <text class="menu-icon">⚙️</text>
-        <text class="menu-text">设置</text>
-        <text class="menu-arrow">›</text>
-      </view>
-    </view>
+    <MenuNav :items="[
+      { icon: '🗂️', label: '设备管理', current: true },
+      { icon: '⚠️', label: '错误信息', url: '/pages/error/ErrorMsg' },
+      { icon: '⚙️', label: '设置', url: '/pages/settings/Settings' },
+    ]" variant="column" />
 
     <!-- 筛选栏 -->
     <view class="filter-bar">
@@ -140,9 +127,10 @@
 <script>
 import { getDevice, deleteDevice, addDevice, editDevice } from "@/api/device"
 import { appStore } from "@/stores/index"
-import { navigateToPage } from "@/utils/navigation"
+import MenuNav from "@/components/MenuNav.vue"
 
 export default {
+  components: { MenuNav },
   data() {
     return {
       filter: "",
@@ -343,10 +331,6 @@ export default {
       this.closeDrawer()
     },
 
-    // 页面跳转（复用全局封装，自动区分 tabBar / 普通页）
-    navigateTo(url) {
-      navigateToPage(url)
-    },
   },
 }
 </script>
@@ -358,61 +342,6 @@ export default {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-/* 顶部导航菜单，与实时 / 历史页风格一致 */
-.menu-list {
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
-  margin: 20rpx 20rpx;
-  background-color: #f5f5f5;
-  flex-shrink: 0;
-}
-
-.menu-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 16rpx 8rpx;
-  margin: 0 8rpx;
-  border-radius: 20rpx;
-  background-color: #fff;
-  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.1);
-}
-
-.menu-item:not(.current):active {
-  background-color: #f5f5f5;
-}
-
-.menu-item.current {
-  background-color: #f0f7ff;
-}
-
-.menu-icon {
-  font-size: 36rpx;
-  margin-bottom: 8rpx;
-}
-
-.menu-text {
-  font-size: 26rpx;
-  color: #333;
-  white-space: nowrap;
-}
-
-.menu-arrow {
-  display: none;
-}
-
-.menu-badge {
-  margin-top: 6rpx;
-  font-size: 20rpx;
-  color: #2979ff;
-  padding: 4rpx 12rpx;
-  background-color: #e3f2fd;
-  border-radius: 20rpx;
 }
 
 /* 筛选栏 */
