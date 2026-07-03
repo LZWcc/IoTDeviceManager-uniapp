@@ -112,7 +112,9 @@
   </scroll-view>
 </template>
 
-<script>
+<script setup>
+import { ref, computed, watch } from "vue"
+import { onShow } from "@dcloudio/uni-app"
 import {
   getDirectConfig,
   saveDirectConfig,
@@ -132,10 +134,7 @@ import {
 
 function getTodayDateText() {
   const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, "0")
-  const day = String(now.getDate()).padStart(2, "0")
-  return `${year}-${month}-${day}`
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
 }
 
 function normalizeTimeText(time) {
@@ -143,227 +142,158 @@ function normalizeTimeText(time) {
   return safe.length === 5 ? `${safe}:00` : safe
 }
 
-// 简易 debounce
 function debounce(fn, delay) {
   let timer = null
-  return function (...args) {
+  return (...args) => {
     clearTimeout(timer)
-    timer = setTimeout(() => fn.apply(this, args), delay)
+    timer = setTimeout(() => fn(...args), delay)
   }
 }
 
-export default {
-  components: { ConfigNode },
+const globalConfigList = ref([])
+const deviceConfigList = ref([])
+const globalInitLock = ref(true)
+const deviceInitLock = ref(true)
+const globalConfigSnapshot = ref(null)
+const deviceConfigSnapshot = ref(null)
+const deviceList = ref([])
+const selectedDevice = ref("")
+const selectedDeviceIndex = ref(0)
+const isSyncingGlobalTime = ref(false)
+const syncTimeModalVisible = ref(false)
+const useCurrentTime = ref(true)
+const customDate = ref(getTodayDateText())
+const customTime = ref("00:00:00")
 
-  data() {
-    return {
-      globalConfigList: [],
-      deviceConfigList: [],
-      globalInitLock: true,
-      deviceInitLock: true,
-      globalConfigSnapshot: null,
-      deviceConfigSnapshot: null,
-      deviceList: [],
-      selectedDevice: "",
-      selectedDeviceIndex: 0,
-      isGlobalSaving: false,
-      isDeviceSaving: false,
-      isSyncingGlobalTime: false,
-      syncTimeModalVisible: false,
-      useCurrentTime: true,
-      customDate: getTodayDateText(),
-      customTime: "00:00:00",
+const showDeviceFeatures = computed(() => appStore.value.settings.showDeviceFeatures)
+
+async function loadConfig(d_no, type) {
+  const isGlobal = type === "global"
+  if (isGlobal) globalInitLock.value = true
+  else deviceInitLock.value = true
+
+  try {
+    const data = initConfigTreeValues(await getDirectConfig(d_no))
+    const snapshot = cloneDeep(collectConfigValues(data))
+    if (isGlobal) {
+      globalConfigList.value = data
+      globalConfigSnapshot.value = snapshot
+    } else {
+      deviceConfigList.value = data
+      deviceConfigSnapshot.value = snapshot
     }
-  },
+  } catch (error) {
+    console.error(`加载配置失败（d_no=${d_no}）:`, error)
+    uni.showToast({ title: "加载配置失败", icon: "none" })
+  } finally {
+    setTimeout(() => {
+      if (isGlobal) globalInitLock.value = false
+      else deviceInitLock.value = false
+    }, 500)
+  }
+}
 
-  computed: {
-    showDeviceFeatures() {
-      return appStore.value.settings.showDeviceFeatures
-    },
-  },
+async function autoSave(d_no) {
+  const isGlobal = d_no === "GLOBAL"
+  const configList = isGlobal ? globalConfigList.value : deviceConfigList.value
+  const snapshot = isGlobal ? globalConfigSnapshot.value : deviceConfigSnapshot.value
 
-  watch: {
-    globalConfigList: {
-      deep: true,
-      handler() {
-        if (!this.globalInitLock) this.debouncedSaveGlobal()
-      },
-    },
-    deviceConfigList: {
-      deep: true,
-      handler() {
-        if (!this.deviceInitLock) this.debouncedSaveDevice()
-      },
-    },
-  },
+  try {
+    const allValues = collectConfigValues(configList)
+    const validValues = getChangedConfigValues(allValues, snapshot).filter(isValidConfigValue)
+    if (validValues.length === 0) return
 
-  onShow() {
-    this.loadConfig("GLOBAL", "global")
-    this.fetchDeviceList()
-  },
+    await saveDirectConfig(validValues.map(normalizeConfigValueForSubmit), d_no)
 
-  created() {
-    this.debouncedSaveGlobal = debounce(() => this.autoSave("GLOBAL"), 1000)
-    this.debouncedSaveDevice = debounce(() => {
-      if (this.selectedDevice) this.autoSave(this.selectedDevice)
-    }, 1000)
-  },
+    const newSnapshot = cloneDeep(collectConfigValues(configList))
+    if (isGlobal) globalConfigSnapshot.value = newSnapshot
+    else deviceConfigSnapshot.value = newSnapshot
 
-  methods: {
-    setInitLock(type, locked) {
-      if (type === "global") this.globalInitLock = locked
-      else this.deviceInitLock = locked
-    },
+    const label = isGlobal ? "全局配置" : `设备 ${d_no} 配置`
+    uni.showToast({ title: `${label}已保存 (${validValues.length} 项)`, icon: "success", duration: 2000 })
+  } catch (error) {
+    console.error("保存配置时出错:", error)
+    uni.showToast({ title: "保存配置失败", icon: "none" })
+  }
+}
 
-    setSavingState(isGlobal, saving) {
-      if (isGlobal) this.isGlobalSaving = saving
-      else this.isDeviceSaving = saving
-    },
+const debouncedSaveGlobal = debounce(() => autoSave("GLOBAL"), 1000)
+const debouncedSaveDevice = debounce(() => {
+  if (selectedDevice.value) autoSave(selectedDevice.value)
+}, 1000)
 
-    getConfigList(isGlobal) {
-      return isGlobal ? this.globalConfigList : this.deviceConfigList
-    },
+watch(globalConfigList, () => {
+  if (!globalInitLock.value) debouncedSaveGlobal()
+}, { deep: true })
 
-    getConfigSnapshot(isGlobal) {
-      return isGlobal ? this.globalConfigSnapshot : this.deviceConfigSnapshot
-    },
+watch(deviceConfigList, () => {
+  if (!deviceInitLock.value) debouncedSaveDevice()
+}, { deep: true })
 
-    // 配置加载会触发 deep watch，初始化锁用于避免“刚加载完就自动保存”。
-    updateConfigState(type, data) {
-      const values = collectConfigValues(data)
-      if (type === "global") {
-        this.globalConfigList = data
-        this.globalConfigSnapshot = cloneDeep(values)
-        return
-      }
-      this.deviceConfigList = data
-      this.deviceConfigSnapshot = cloneDeep(values)
-    },
+onShow(() => {
+  loadConfig("GLOBAL", "global")
+  fetchDeviceList()
+})
 
-    updateConfigSnapshot(isGlobal, configList) {
-      const snapshot = cloneDeep(collectConfigValues(configList))
-      if (isGlobal) this.globalConfigSnapshot = snapshot
-      else this.deviceConfigSnapshot = snapshot
-    },
+async function fetchDeviceList() {
+  try {
+    deviceList.value = await getConfigDeviceList()
+  } catch (error) {
+    console.error("获取设备列表失败:", error)
+  }
+}
 
-    getAutoSaveContext(d_no) {
-      const isGlobal = d_no === "GLOBAL"
-      const configList = this.getConfigList(isGlobal)
-      const snapshot = this.getConfigSnapshot(isGlobal)
-      return { isGlobal, configList, snapshot }
-    },
+function handleSyncGlobalTime() {
+  if (isSyncingGlobalTime.value) return
+  if (!customDate.value) customDate.value = getTodayDateText()
+  syncTimeModalVisible.value = true
+}
 
-    showAutoSaveToast(isGlobal, d_no, count) {
-      const msg = isGlobal
-        ? `全局配置已保存 (${count} 项)`
-        : `设备 ${d_no} 配置已保存 (${count} 项)`
-      uni.showToast({ title: msg, icon: "success", duration: 2000 })
-    },
+function onDatePickerChange(e) {
+  customDate.value = e.detail.value
+}
 
-    // 加载配置：只做请求、初始化默认值和刷新快照，不在这里触发保存。
-    async loadConfig(d_no, type) {
-      this.setInitLock(type, true)
-      try {
-        const data = initConfigTreeValues(await getDirectConfig(d_no))
-        this.updateConfigState(type, data)
-      } catch (error) {
-        console.error(`加载配置失败（d_no=${d_no}）:`, error)
-        uni.showToast({ title: "加载配置失败", icon: "none" })
-      } finally {
-        setTimeout(() => {
-          this.setInitLock(type, false)
-        }, 500)
-      }
-    },
+function onTimePickerChange(e) {
+  customTime.value = e.detail.value
+}
 
-    // 自动保存只提交和快照相比发生变化的非空项，避免每次修改都下发整棵配置树。
-    async autoSave(d_no) {
-      const { isGlobal, configList, snapshot } = this.getAutoSaveContext(d_no)
-      this.setSavingState(isGlobal, true)
-      try {
-        const allValues = collectConfigValues(configList)
-        const validValues = getChangedConfigValues(allValues, snapshot).filter(
-          isValidConfigValue,
-        )
-        if (validValues.length === 0) return
+async function confirmSyncTime() {
+  isSyncingGlobalTime.value = true
+  try {
+    const time = useCurrentTime.value
+      ? undefined
+      : `${customDate.value || getTodayDateText()} ${normalizeTimeText(customTime.value)}`
+    const response = await syncGlobalTime(time)
+    uni.showToast({
+      title: response?.message || "全局时间同步指令已下发",
+      icon: "success",
+      duration: 2000,
+    })
+    syncTimeModalVisible.value = false
+  } catch (error) {
+    console.error("全局同步时间失败:", error)
+    uni.showToast({
+      title: error?.response?.data?.message || error?.message || "全局同步时间失败",
+      icon: "none",
+      duration: 2500,
+    })
+  } finally {
+    isSyncingGlobalTime.value = false
+  }
+}
 
-        const valuesToSave = validValues.map(normalizeConfigValueForSubmit)
-        await saveDirectConfig(valuesToSave, d_no)
-        this.updateConfigSnapshot(isGlobal, configList)
-        this.showAutoSaveToast(isGlobal, d_no, validValues.length)
-      } catch (error) {
-        console.error("保存配置时出错:", error)
-        uni.showToast({ title: "保存配置失败", icon: "none" })
-      } finally {
-        this.setSavingState(isGlobal, false)
-      }
-    },
-
-    // 获取设备列表
-    async fetchDeviceList() {
-      try {
-        this.deviceList = await getConfigDeviceList()
-      } catch (error) {
-        console.error("获取设备列表失败:", error)
-      }
-    },
-
-    handleSyncGlobalTime() {
-      if (this.isSyncingGlobalTime) return
-      if (!this.customDate) this.customDate = getTodayDateText()
-      this.syncTimeModalVisible = true
-    },
-
-    onDatePickerChange(e) {
-      this.customDate = e.detail.value
-    },
-
-    onTimePickerChange(e) {
-      this.customTime = e.detail.value
-    },
-
-    async confirmSyncTime() {
-      this.isSyncingGlobalTime = true
-      try {
-        const time = this.useCurrentTime
-          ? undefined
-          : `${this.customDate || getTodayDateText()} ${normalizeTimeText(this.customTime)}`
-        const response = await syncGlobalTime(time)
-        uni.showToast({
-          title: response?.message || "全局时间同步指令已下发",
-          icon: "success",
-          duration: 2000,
-        })
-        this.syncTimeModalVisible = false
-      } catch (error) {
-        console.error("全局同步时间失败:", error)
-        const message =
-          error?.response?.data?.message || error?.message || "全局同步时间失败"
-        uni.showToast({
-          title: message,
-          icon: "none",
-          duration: 2500,
-        })
-      } finally {
-        this.isSyncingGlobalTime = false
-      }
-    },
-
-    // 切换设备
-    async handleDeviceChange(e) {
-      const index = e.detail.value
-      this.selectedDeviceIndex = index
-      const deviceNo = this.deviceList[index]
-      if (!deviceNo) {
-        this.deviceConfigList = []
-        this.deviceConfigSnapshot = null
-        return
-      }
-      this.selectedDevice = deviceNo
-      this.deviceConfigList = []
-      await this.loadConfig(deviceNo, "device")
-    },
-  },
+async function handleDeviceChange(e) {
+  const index = e.detail.value
+  selectedDeviceIndex.value = index
+  const deviceNo = deviceList.value[index]
+  if (!deviceNo) {
+    deviceConfigList.value = []
+    deviceConfigSnapshot.value = null
+    return
+  }
+  selectedDevice.value = deviceNo
+  deviceConfigList.value = []
+  await loadConfig(deviceNo, "device")
 }
 </script>
 

@@ -101,72 +101,58 @@
   </view>
 </template>
 
-<script>
-export default {
-  name: "ConfigNode",
+<script setup>
+import { computed } from "vue"
 
-  props: {
-    node: { type: Object, required: true },
-    level: { type: Number, default: 0 },
-  },
+const props = defineProps({
+  node: { type: Object, required: true },
+  level: { type: Number, default: 0 },
+})
 
-  computed: {
-    visibleChildren() {
-      if (!this.node.children || this.node.children.length === 0) return []
-      return this.node.children.filter((child) => {
-        if (!child.ref_value) return true
-        const refValues = child.ref_value.split("&")
-        return refValues.includes(this.node.value)
-      })
-    },
-  },
+const visibleChildren = computed(() => {
+  if (!props.node.children?.length) return []
+  return props.node.children.filter((child) => {
+    if (!child.ref_value) return true
+    return child.ref_value.split("&").includes(props.node.value)
+  })
+})
 
-  methods: {
-    onSwitchChange(e) {
-      const isOn = e.detail.value
-      this.node.value = isOn
-        ? this.node.f_value[1]?.value
-        : this.node.f_value[0]?.value
-    },
+function onSwitchChange(e) {
+  props.node.value = e.detail.value
+    ? props.node.f_value[1]?.value
+    : props.node.f_value[0]?.value
+}
 
-    onInputChange(e) {
-      this.node.value = e.detail.value
-    },
+function onInputChange(e) {
+  props.node.value = e.detail.value
+}
 
-    handleInputValidate() {
-      const min = Number(this.node.min) || 0
-      const max = Number(this.node.max) || 100
-      const value = Number(this.node.value)
-      if (this.node.value !== "" && !isNaN(value)) {
-        if (value < min) {
-          uni.showToast({
-            title: `${this.node.t_name} 不能小于 ${min}`,
-            icon: "none",
-          })
-          this.node.value = ""
-        } else if (value > max) {
-          uni.showToast({
-            title: `${this.node.t_name} 不能大于 ${max}`,
-            icon: "none",
-          })
-          this.node.value = ""
-        }
-      }
-    },
+function handleInputValidate() {
+  const min = Number(props.node.min) || 0
+  const max = Number(props.node.max) || 100
+  const value = Number(props.node.value)
+  if (props.node.value !== "" && !isNaN(value)) {
+    if (value < min) {
+      uni.showToast({ title: `${props.node.t_name} 不能小于 ${min}`, icon: "none" })
+      props.node.value = ""
+    } else if (value > max) {
+      uni.showToast({ title: `${props.node.t_name} 不能大于 ${max}`, icon: "none" })
+      props.node.value = ""
+    }
+  }
+}
 
-    onSliderChange(e) {
-      this.node.value = e.detail.value
-    },
+function onSliderChange(e) {
+  props.node.value = e.detail.value
+}
 
-    onTimeChange(e) {
-      const value = e.detail.value
-      this.node.value = value && value.length === 5 ? `${value}:00` : value
-    },
+function onTimeChange(e) {
+  const value = e.detail.value
+  props.node.value = value && value.length === 5 ? `${value}:00` : value
+}
 
-    onRadioChange(e) {
-      this.node.value = e.detail.value
-    },
-  },
+function onRadioChange(e) {
+  props.node.value = e.detail.value
 }
 </script>
 
